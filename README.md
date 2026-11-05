@@ -43,12 +43,23 @@ El rol no se elige en el cliente. El flujo previsto es:
 3. El trigger de `perfiles` materializa el perfil al primer acceso.
 4. RLS y los grants por columna impiden que el usuario modifique su rol o su alcance.
 
+## Estado del móvil (preview)
+
+- [x] Scaffold Flutter en `apps/mobile` (Android).
+- [x] Pantalla de botones con selector Empleado/Gerente y acciones simuladas.
+- [x] `flutter analyze` y `flutter build apk --debug` validados.
+- [ ] Conexión a Supabase Auth/Realtime.
+- [ ] Gestión de estado con Riverpod/Bloc.
+- [ ] `flutter_map` + GPS/geocerca.
+
 ## Historial de cambios
 
 | Fecha | Entrega | Rama | PR | Estado | Validación |
 |---|---|---|---|---|---|
 | 2026-11-05 | Migración `0001` — bootstrap de extensiones y helpers de seguridad | `dgiron-2025071` | [#2](https://github.com/dgiron-2025071/AppCarrousel/pull/2) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
 | 2026-11-05 | README con stack, estado y bitácora | `dgiron-2025071` | [#3](https://github.com/dgiron-2025071/AppCarrousel/pull/3) | Mergeado a `develop` | — |
+| 2026-11-05 | Scaffold Flutter en `apps/mobile` | `dgiron-2025071` | [#4](https://github.com/dgiron-2025071/AppCarrousel/pull/4) | Mergeado a `develop` | `flutter analyze` OK |
+| 2026-11-05 | Pantalla de botones (preview) | `dgiron-2025071` | [#5](https://github.com/dgiron-2025071/AppCarrousel/pull/5) | Mergeado a `develop` | `flutter analyze` + `flutter build apk --debug` OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2, que fue mergeado.
 
@@ -70,21 +81,34 @@ No se hace push directo a `main`. Cada merge a `develop` debe dejar la rama de t
 | Flutter | 3.47.9 (stable) |
 | Dart | 3.13.7 |
 | Android Studio | Instalado |
+| Android SDK | 36 (platform 36 rev.2) |
+| Android NDK | 28.2.13676358 (canal canary) |
+| Emulador | `Medium_Phone_API_37.0` |
 | Node.js | 22.22.3 |
 | pnpm | 12.16.1 |
 | Supabase CLI | 3.0.0 |
 | Docker Desktop | Pendiente (requiere WSL2 y elevación) |
 
-### Comandos previstos
+### Abrir el proyecto móvil
+
+Abrir en Android Studio la carpeta `apps/mobile` (no la raíz del repo):
+
+```text
+File > Open... > C:\AppCarrousel\apps\mobile
+```
+
+### Comandos
 
 ```bash
 # Backend (cuando Docker esté disponible)
-supabase init
 supabase start
 supabase db reset
 
-# Móvil (fase posterior)
+# Móvil
+cd apps/mobile
 flutter pub get
+flutter analyze
+flutter build apk --debug
 flutter run
 ```
 
@@ -95,7 +119,8 @@ flutter run
 3. Entregar `0003`: parques corporativos.
 4. Entregar `0004`: perfiles y separación de roles.
 5. Implementar el flujo de invitación en TypeScript/Deno con `pnpm`.
-6. Crear la pantalla de botones en Flutter para previsualizar los flujos en Android Studio.
+6. Conectar el preview Flutter a Supabase Auth y añadir Riverpod/Bloc.
+7. Integrar `flutter_map` con OpenStreetMap y GPS/geocerca.
 
 ## Seguridad
 
