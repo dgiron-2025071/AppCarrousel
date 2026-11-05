@@ -30,7 +30,7 @@ Micro-tarea: núcleo organizacional dinámico, identidad/roles y RLS base.
 - [x] **0001** Bootstrap: extensiones, schema `private`, enum `rol_usuario`, helpers JWT, trigger de auditoría y endurecimiento de grants.
 - [x] **0002** `empresas` + jerarquía de `centros_costo` + RLS.
 - [x] **0003** `parques` + RLS.
-- [ ] **0004** `perfiles` + roles + RLS.
+- [x] **0004** `perfiles` + roles + RLS.
 - [ ] **0005** Pruebas pgTAP de aislamiento (recomendado).
 - [ ] Validación ejecutada con `supabase db reset` y JWT reales de empleado/gerente.
 
@@ -40,7 +40,7 @@ El rol no se elige en el cliente. El flujo previsto es:
 
 1. Un administrador autorizado genera una invitación con rol (`empleado` o `gerente`) y alcance (`empresa_id`, `centro_costo_id`).
 2. Una Edge Function con `service_role` crea el usuario en Supabase Auth y escribe esos valores en `app_metadata`.
-3. El trigger de `perfiles` materializa el perfil al primer acceso.
+3. El trigger de `perfiles` materializa el perfil al crear el usuario o al actualizar `app_metadata`.
 4. RLS y los grants por columna impiden que el usuario modifique su rol o su alcance.
 
 ## Estado del móvil (preview)
@@ -63,6 +63,7 @@ El rol no se elige en el cliente. El flujo previsto es:
 | 2026-11-05 | README: estado del móvil y entorno | `dgiron-2025071` | [#6](https://github.com/dgiron-2025071/AppCarrousel/pull/6) | Mergeado a `develop` | — |
 | 2026-11-05 | Migración `0002` — empresas y centros de costo | `dgiron-2025071` | [#7](https://github.com/dgiron-2025071/AppCarrousel/pull/7) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
 | 2026-11-05 | Migración `0003` — parques y geocerca | `dgiron-2025071` | [#9](https://github.com/dgiron-2025071/AppCarrousel/pull/9) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | Migración `0004` — perfiles y roles | `dgiron-2025071` | [#11](https://github.com/dgiron-2025071/AppCarrousel/pull/11) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2, que fue mergeado.
 
@@ -117,8 +118,8 @@ flutter run
 
 ## Siguientes pasos
 
-1. Validar las migraciones `0001`–`0003` en un entorno PostgreSQL/Supabase real.
-2. Entregar `0004`: perfiles y separación de roles.
+1. Validar las migraciones `0001`–`0004` en un entorno PostgreSQL/Supabase real.
+2. Entregar `0005`: pruebas pgTAP de aislamiento y de no autoelevación.
 3. Implementar el flujo de invitación en TypeScript/Deno con `pnpm`.
 4. Conectar el preview Flutter a Supabase Auth y añadir Riverpod/Bloc.
 5. Integrar `flutter_map` con OpenStreetMap y GPS/geocerca.
