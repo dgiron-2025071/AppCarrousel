@@ -34,6 +34,8 @@ Micro-tarea: núcleo organizacional dinámico, identidad/roles y RLS base.
 - [ ] **0005** Pruebas pgTAP de aislamiento (recomendado).
 - [ ] Validación ejecutada con `supabase db reset` y JWT reales de empleado/gerente.
 
+> Estado real: el esquema base (`0001`–`0004`) está completo en código, pero **ninguna migración se ha ejecutado todavía** contra PostgreSQL/Supabase porque el entorno no tiene Docker/WSL2. Toda la validación es estática hasta que exista un entorno de base de datos.
+
 ### Aprovisionamiento de roles
 
 El rol no se elige en el cliente. El flujo previsto es:
@@ -62,8 +64,11 @@ El rol no se elige en el cliente. El flujo previsto es:
 | 2026-11-05 | Pantalla de botones (preview) | `dgiron-2025071` | [#5](https://github.com/dgiron-2025071/AppCarrousel/pull/5) | Mergeado a `develop` | `flutter analyze` + `flutter build apk --debug` OK |
 | 2026-11-05 | README: estado del móvil y entorno | `dgiron-2025071` | [#6](https://github.com/dgiron-2025071/AppCarrousel/pull/6) | Mergeado a `develop` | — |
 | 2026-11-05 | Migración `0002` — empresas y centros de costo | `dgiron-2025071` | [#7](https://github.com/dgiron-2025071/AppCarrousel/pull/7) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | README: registrar migración `0002` | `dgiron-2025071` | [#8](https://github.com/dgiron-2025071/AppCarrousel/pull/8) | Mergeado a `develop` | — |
 | 2026-11-05 | Migración `0003` — parques y geocerca | `dgiron-2025071` | [#9](https://github.com/dgiron-2025071/AppCarrousel/pull/9) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | README: registrar migración `0003` | `dgiron-2025071` | [#10](https://github.com/dgiron-2025071/AppCarrousel/pull/10) | Mergeado a `develop` | — |
 | 2026-11-05 | Migración `0004` — perfiles y roles | `dgiron-2025071` | [#11](https://github.com/dgiron-2025071/AppCarrousel/pull/11) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | README: registrar migración `0004` y cierre del esquema | `dgiron-2025071` | [#12](https://github.com/dgiron-2025071/AppCarrousel/pull/12) | Mergeado a `develop` | — |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2, que fue mergeado.
 
