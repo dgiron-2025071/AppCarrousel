@@ -48,7 +48,7 @@ El rol no se elige en el cliente. El flujo previsto es:
 | Fecha | Entrega | Rama | PR | Estado | Validación |
 |---|---|---|---|---|---|
 | 2026-11-05 | Migración `0001` — bootstrap de extensiones y helpers de seguridad | `dgiron-2025071` | [#2](https://github.com/dgiron-2025071/AppCarrousel/pull/2) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
-| 2026-11-05 | README inicial con stack, estado y bitácora | `dgiron-2025071` | — | En curso | — |
+| 2026-11-05 | README con stack, estado y bitácora | `dgiron-2025071` | [#3](https://github.com/dgiron-2025071/AppCarrousel/pull/3) | Mergeado a `develop` | — |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2, que fue mergeado.
 
