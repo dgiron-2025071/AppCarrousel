@@ -29,7 +29,7 @@ Micro-tarea: núcleo organizacional dinámico, identidad/roles y RLS base.
 
 - [x] **0001** Bootstrap: extensiones, schema `private`, enum `rol_usuario`, helpers JWT, trigger de auditoría y endurecimiento de grants.
 - [x] **0002** `empresas` + jerarquía de `centros_costo` + RLS.
-- [ ] **0003** `parques` + RLS.
+- [x] **0003** `parques` + RLS.
 - [ ] **0004** `perfiles` + roles + RLS.
 - [ ] **0005** Pruebas pgTAP de aislamiento (recomendado).
 - [ ] Validación ejecutada con `supabase db reset` y JWT reales de empleado/gerente.
@@ -62,6 +62,7 @@ El rol no se elige en el cliente. El flujo previsto es:
 | 2026-11-05 | Pantalla de botones (preview) | `dgiron-2025071` | [#5](https://github.com/dgiron-2025071/AppCarrousel/pull/5) | Mergeado a `develop` | `flutter analyze` + `flutter build apk --debug` OK |
 | 2026-11-05 | README: estado del móvil y entorno | `dgiron-2025071` | [#6](https://github.com/dgiron-2025071/AppCarrousel/pull/6) | Mergeado a `develop` | — |
 | 2026-11-05 | Migración `0002` — empresas y centros de costo | `dgiron-2025071` | [#7](https://github.com/dgiron-2025071/AppCarrousel/pull/7) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | Migración `0003` — parques y geocerca | `dgiron-2025071` | [#9](https://github.com/dgiron-2025071/AppCarrousel/pull/9) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2, que fue mergeado.
 
@@ -116,12 +117,11 @@ flutter run
 
 ## Siguientes pasos
 
-1. Validar las migraciones `0001` y `0002` en un entorno PostgreSQL/Supabase real.
-2. Entregar `0003`: parques corporativos.
-3. Entregar `0004`: perfiles y separación de roles.
-4. Implementar el flujo de invitación en TypeScript/Deno con `pnpm`.
-5. Conectar el preview Flutter a Supabase Auth y añadir Riverpod/Bloc.
-6. Integrar `flutter_map` con OpenStreetMap y GPS/geocerca.
+1. Validar las migraciones `0001`–`0003` en un entorno PostgreSQL/Supabase real.
+2. Entregar `0004`: perfiles y separación de roles.
+3. Implementar el flujo de invitación en TypeScript/Deno con `pnpm`.
+4. Conectar el preview Flutter a Supabase Auth y añadir Riverpod/Bloc.
+5. Integrar `flutter_map` con OpenStreetMap y GPS/geocerca.
 
 ## Seguridad
 
