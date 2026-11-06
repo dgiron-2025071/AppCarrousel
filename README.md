@@ -1,6 +1,6 @@
 # AppCarrousel
 
-Núcleo técnico de la aplicación corporativa de **Empresa Carrousel**. La primera implementación se enfoca en bodegas, pero la arquitectura se diseña desde el día uno para escalar a toda la empresa sin refactorizar el core.
+Núcleo técnico de la aplicación corporativa de **Carrousel**. La primera implementación se enfoca en bodegas, pero la arquitectura se diseña desde el día uno para escalar a toda la empresa sin refactorizar el core.
 
 ## Stack tecnológico
 
@@ -32,7 +32,7 @@ Micro-tarea: núcleo organizacional dinámico, identidad/roles y RLS base.
 - [x] **0003** `parques` + RLS.
 - [x] **0004** `perfiles` + roles + RLS.
 - [ ] **0005** Pruebas pgTAP de aislamiento (recomendado).
-- [ ] Validación ejecutada con `supabase db reset` y JWT reales de empleado/gerente.
+- [ ] Validación ejecutada con `supabase db reset` y JWT reales de empleado/admin.
 
 > Estado real: el esquema base (`0001`–`0004`) está completo en código, pero **ninguna migración se ha ejecutado todavía** contra PostgreSQL/Supabase porque el entorno no tiene Docker/WSL2. Toda la validación es estática hasta que exista un entorno de base de datos.
 
@@ -40,7 +40,7 @@ Micro-tarea: núcleo organizacional dinámico, identidad/roles y RLS base.
 
 El rol no se elige en el cliente. El flujo previsto es:
 
-1. Un administrador autorizado genera una invitación con rol (`empleado` o `gerente`) y alcance (`empresa_id`, `centro_costo_id`).
+1. Un administrador autorizado genera una invitación con rol (`empleado` o `admin`) y alcance (`empresa_id`, `centro_costo_id`).
 2. Una Edge Function con `service_role` crea el usuario en Supabase Auth y escribe esos valores en `app_metadata`.
 3. El trigger de `perfiles` materializa el perfil al crear el usuario o al actualizar `app_metadata`.
 4. RLS y los grants por columna impiden que el usuario modifique su rol o su alcance.
@@ -48,7 +48,7 @@ El rol no se elige en el cliente. El flujo previsto es:
 ## Estado del móvil (preview)
 
 - [x] Scaffold Flutter en `apps/mobile` (Android).
-- [x] Pantalla de botones con selector Empleado/Gerente y acciones simuladas.
+- [x] Pantalla de botones con selector Empleado/Admin y acciones simuladas.
 - [x] `flutter analyze` y `flutter build apk --debug` validados.
 - [ ] Conexión a Supabase Auth/Realtime.
 - [ ] Gestión de estado con Riverpod/Bloc.

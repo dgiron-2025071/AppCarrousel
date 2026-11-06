@@ -1,5 +1,5 @@
 -- =============================================================================
--- Empresa Carrousel — Núcleo backend
+-- Carrousel — Núcleo backend
 -- MT-01 / Archivo 01: bootstrap de extensiones, tipos y helpers de seguridad
 -- Fecha: 2026-11-05
 --
@@ -48,7 +48,7 @@ comment on schema private is
 -- -----------------------------------------------------------------------------
 -- 3. Tipos de dominio
 -- -----------------------------------------------------------------------------
-create type public.rol_usuario as enum ('empleado', 'gerente');
+create type public.rol_usuario as enum ('empleado', 'admin');
 
 comment on type public.rol_usuario is
   'Roles de negocio. La administración se ejerce con service_role, no con un rol de aplicación.';
@@ -138,7 +138,7 @@ set search_path = ''
 as $$
   select case (auth.jwt() -> 'app_metadata') ->> 'rol'
            when 'empleado' then 'empleado'::public.rol_usuario
-           when 'gerente'  then 'gerente'::public.rol_usuario
+           when 'admin'    then 'admin'::public.rol_usuario
            else null
          end;
 $$;
@@ -146,7 +146,7 @@ $$;
 comment on function private.current_rol() is
   'Rol de negocio del JWT (app_metadata.rol). Valores desconocidos devuelven NULL.';
 
-create or replace function private.es_gerente()
+create or replace function private.es_admin()
 returns boolean
 language sql
 stable
@@ -154,13 +154,13 @@ security invoker
 set search_path = ''
 as $$
   select coalesce(
-    private.current_rol() = 'gerente'::public.rol_usuario,
+    private.current_rol() = 'admin'::public.rol_usuario,
     false
   );
 $$;
 
-comment on function private.es_gerente() is
-  'TRUE solo si el JWT tiene app_metadata.rol = gerente. Fail-closed.';
+comment on function private.es_admin() is
+  'TRUE solo si el JWT tiene app_metadata.rol = admin. Fail-closed.';
 
 -- -----------------------------------------------------------------------------
 -- 6. Privilegios de ejecución
@@ -170,14 +170,14 @@ revoke all on function private.safe_uuid(text)         from public;
 revoke all on function private.current_empresa_id()    from public;
 revoke all on function private.current_centro_id()     from public;
 revoke all on function private.current_rol()           from public;
-revoke all on function private.es_gerente()            from public;
+revoke all on function private.es_admin()              from public;
 
 grant execute on function private.set_actualizado_en() to authenticated, service_role;
 grant execute on function private.safe_uuid(text)       to authenticated, service_role;
 grant execute on function private.current_empresa_id()  to authenticated, service_role;
 grant execute on function private.current_centro_id()   to authenticated, service_role;
 grant execute on function private.current_rol()         to authenticated, service_role;
-grant execute on function private.es_gerente()          to authenticated, service_role;
+grant execute on function private.es_admin()            to authenticated, service_role;
 
 -- -----------------------------------------------------------------------------
 -- 7. Endurecimiento de privilegios por defecto
