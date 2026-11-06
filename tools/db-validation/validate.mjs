@@ -168,7 +168,13 @@ const J = {
   grandAbierta: 'd1000000-0000-4000-8000-000000000002',
   bCerrada: 'd1000000-0000-4000-8000-000000000003',
 };
-
+const S = {
+  aPendiente: 'f1000000-0000-4000-8000-000000000001',
+  aAprobada: 'f1000000-0000-4000-8000-000000000002',
+  grandPendiente: 'f1000000-0000-4000-8000-000000000003',
+  bPendiente: 'f1000000-0000-4000-8000-000000000004',
+  adminPropia: 'f1000000-0000-4000-8000-000000000005',
+};
 
 group('Datos de prueba');
 await q(`
@@ -237,6 +243,30 @@ await q(`
   J.bCerrada, B.empresa, U.empB, P.b,
 ]);
 
+// Solicitudes históricas en todos los estados.
+await q(`
+  insert into public.solicitudes_horas_extras (
+    id, empresa_id, empleado_id, centro_costo_id, inicio, fin,
+    justificacion, estado, comentario_admin, revisado_por, revisado_en
+  ) values
+    ($1, $2, $3, $4, now() - interval '2 days', now() - interval '2 days' + interval '3 hours',
+     'Apoyo en inventario del parque central', 'pendiente', null, null, null),
+    ($5, $2, $3, $4, now() - interval '3 days', now() - interval '3 days' + interval '2 hours',
+     'Cobertura de turno especial', 'aprobada', 'Aprobado por necesidad operativa', $6, now() - interval '2 days'),
+    ($7, $2, $8, $9, now() - interval '1 day', now() - interval '1 day' + interval '4 hours',
+     'Apoyo en montaje del parque grande', 'pendiente', null, null, null),
+    ($10, $11, $12, $13, now() - interval '1 day', now() - interval '1 day' + interval '3 hours',
+     'Solicitud de la empresa B', 'pendiente', null, null, null),
+    ($14, $2, $15, $16, now() - interval '1 day', now() - interval '1 day' + interval '3 hours',
+     'Solicitud propia del admin', 'pendiente', null, null, null);
+`, [
+  S.aPendiente, A.empresa, U.empA, A.grand,
+  S.aAprobada, U.gerRoot,
+  S.grandPendiente, U.empGrand, A.grand,
+  S.bPendiente, B.empresa, U.empB, B.root,
+  S.adminPropia, U.gerA, A.child,
+]);
+
 console.log('  Datos insertados.');
 
 // -----------------------------------------------------------------------------
@@ -244,26 +274,30 @@ console.log('  Datos insertados.');
 // -----------------------------------------------------------------------------
 group('Estructura');
 const BUSINESS_TABLES = [
-  'empresas', 'centros_costo', 'parques', 'perfiles', 'jornadas',
+  'empresas', 'centros_costo', 'parques', 'perfiles',
+  'jornadas', 'solicitudes_horas_extras',
 ];
-eq('5 tablas de negocio', await scalar(`
+eq('6 tablas de negocio', await scalar(`
   select count(*)::int from information_schema.tables
   where table_schema = 'public'
     and table_name = any ($1::text[])
-`, [BUSINESS_TABLES]), 5);
-eq('RLS habilitada en las 5 tablas', await scalar(`
+`, [BUSINESS_TABLES]), 6);
+eq('RLS habilitada en las 6 tablas', await scalar(`
   select count(*)::int from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public'
     and c.relname = any ($1::text[])
     and c.relrowsecurity
-`, [BUSINESS_TABLES]), 5);
+`, [BUSINESS_TABLES]), 6);
 eq('extensiones citext y pgcrypto', await scalar(`
   select count(*)::int from pg_extension where extname in ('citext','pgcrypto')
 `), 2);
-eq('políticas RLS creadas (2+4+4+1+3)', await scalar(`
+eq('políticas RLS creadas (2+4+4+1+3+3)', await scalar(`
   select count(*)::int from pg_policies where schemaname = 'public'
-`), 14);
+`), 17);
+eq('enum de estado de solicitud', await scalar(`
+  select enum_range(null::public.estado_solicitud)::text
+`), '{pendiente,aprobada,rechazada}');
 
 // -----------------------------------------------------------------------------
 // Jerarquía
@@ -753,22 +787,189 @@ try {
 }
 
 // -----------------------------------------------------------------------------
+// Horas extras
+// -----------------------------------------------------------------------------
+group('Solicitudes de horas extras');
+
+const solicitudCreada = await withRole('authenticated', empAClaims, async () => {
+  const r = await q(`
+    insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+    values ($1, now(), now() + interval '3 hours', 'Apoyo en inventario del parque central')
+    returning empresa_id, empleado_id, estado, revisado_por, revisado_en
+  `, [A.grand]);
+  return r.rows[0];
+});
+eq('el especialista crea una solicitud pendiente',
+  [solicitudCreada.empresa_id, solicitudCreada.empleado_id,
+    solicitudCreada.estado, solicitudCreada.revisado_por, solicitudCreada.revisado_en],
+  [A.empresa, U.empA, 'pendiente', null, null]);
+
+await expectRoleError('justificación demasiado corta', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+  values ($1, now(), now() + interval '1 hour', 'corta')
+`, [A.grand], '23514');
+
+await expectRoleError('fin anterior al inicio', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+  values ($1, now(), now() - interval '1 hour', 'Rango inválido de prueba')
+`, [A.grand], '23514');
+
+await expectRoleError('duración mayor a 24 horas', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+  values ($1, now(), now() + interval '25 hours', 'Duración excesiva de prueba')
+`, [A.grand], '23514');
+
+await expectRoleError('no solicita para un centro de otra empresa', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+  values ($1, now(), now() + interval '1 hour', 'Cruce de empresa en solicitud')
+`, [B.root], '42501');
+
+await expectRoleError('no falsifica la empresa de la solicitud', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (empresa_id, centro_costo_id, inicio, fin, justificacion)
+  values ($1, $2, now(), now() + interval '1 hour', 'Intento de falsificar empresa')
+`, [A.empresa, A.grand], '42501');
+
+await expectRoleError('no solicita a nombre de otro', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (empleado_id, centro_costo_id, inicio, fin, justificacion)
+  values ($1, $2, now(), now() + interval '1 hour', 'Intento de suplantación')
+`, [U.empGrand, A.grand], '42501');
+
+await expectRoleError('no nace aprobada', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion, estado)
+  values ($1, now(), now() + interval '1 hour', 'Intento de autoaprobarse', 'aprobada')
+`, [A.grand], '42501');
+
+await expectRoleError('no falsifica la revisión al crear', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion, revisado_por)
+  values ($1, now(), now() + interval '1 hour', 'Intento de falsificar revisor', $2)
+`, [A.grand, U.gerA], '42501');
+
+await expectRoleError('no escribe comentario del admin al crear', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion, comentario_admin)
+  values ($1, now(), now() + interval '1 hour', 'Intento de comentario propio', 'comentario')
+`, [A.grand], '42501');
+
+eq('el especialista ve solo sus solicitudes',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
+  [S.aPendiente, S.aAprobada].sort());
+eq('el especialista nieto ve solo las suyas',
+  await withRole('authenticated', claims(U.empGrand, A.empresa, A.grand, 'empleado'), async () =>
+    (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
+  [S.grandPendiente]);
+eq('el admin ve las solicitudes de su subárbol',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
+  [S.aPendiente, S.aAprobada, S.grandPendiente, S.adminPropia].sort());
+eq('el admin raíz ve todas las solicitudes de su empresa',
+  await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+    (await q('select count(*)::int from public.solicitudes_horas_extras')).rows[0].count),
+  4);
+eq('el admin A no ve solicitudes de B',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q('select count(*)::int from public.solicitudes_horas_extras where id = $1', [S.bPendiente])).rows[0].count),
+  0);
+eq('el especialista B ve solo las suyas',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
+  [S.bPendiente]);
+
+const aprobada = await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () => {
+  const r = await q(`
+    update public.solicitudes_horas_extras
+    set estado = 'aprobada', comentario_admin = 'Aprobado, gracias'
+    where id = $1
+  `, [S.aPendiente]);
+  const row = (await q(`
+    select estado, comentario_admin, revisado_por, revisado_en is not null as revisado
+    from public.solicitudes_horas_extras where id = $1
+  `, [S.aPendiente])).rows[0];
+  return [r.rowCount, row.estado, row.comentario_admin, row.revisado_por, row.revisado];
+});
+eq('el admin aprueba con comentario y firma la revisión', aprobada,
+  [1, 'aprobada', 'Aprobado, gracias', U.gerA, true]);
+
+const rechazada = await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () => {
+  const r = await q(`
+    update public.solicitudes_horas_extras set estado = 'rechazada'
+    where id = $1
+  `, [S.grandPendiente]);
+  const row = (await q(`
+    select estado, comentario_admin, revisado_por
+    from public.solicitudes_horas_extras where id = $1
+  `, [S.grandPendiente])).rows[0];
+  return [r.rowCount, row.estado, row.comentario_admin, row.revisado_por];
+});
+eq('el admin rechaza sin comentario obligatorio', rechazada,
+  [1, 'rechazada', null, U.gerA]);
+
+eq('el admin no revisa solicitudes fuera de su subárbol',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
+    `, [S.bPendiente])).rowCount),
+  0);
+
+eq('el admin no revisa su propia solicitud',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
+    `, [S.adminPropia])).rowCount),
+  0);
+
+eq('no se revisa dos veces una solicitud',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'rechazada' where id = $1
+    `, [S.aAprobada])).rowCount),
+  0);
+
+eq('el especialista no cambia el estado de su solicitud',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
+    `, [S.aPendiente])).rowCount),
+  0);
+
+await expectRoleError('el admin no cambia el especialista', 'authenticated',
+  claims(U.gerA, A.empresa, A.child, 'admin'),
+  `update public.solicitudes_horas_extras set empleado_id = $1 where id = $2`,
+  [U.empGrand, S.aPendiente], '42501');
+
+await expectRoleError('el admin no falsifica quién revisó', 'authenticated',
+  claims(U.gerA, A.empresa, A.child, 'admin'),
+  `update public.solicitudes_horas_extras set revisado_por = $1 where id = $2`,
+  [U.gerRoot, S.aPendiente], '42501');
+
+await expectRoleError('el admin no cambia la empresa', 'authenticated',
+  claims(U.gerA, A.empresa, A.child, 'admin'),
+  `update public.solicitudes_horas_extras set empresa_id = $1 where id = $2`,
+  [B.empresa, S.aPendiente], '42501');
+
+await expectRoleError('no se pueden borrar solicitudes', 'authenticated', empAClaims,
+  'delete from public.solicitudes_horas_extras where id = $1', [S.aPendiente], '42501');
+
+await expectError('no se reabre una solicitud revisada', `
+  update public.solicitudes_horas_extras set estado = 'pendiente' where id = $1
+`, [S.aAprobada], '23514');
+
+// -----------------------------------------------------------------------------
 // Tiempo real
 // -----------------------------------------------------------------------------
 group('Realtime');
-eq('la publicación incluye jornadas', await scalar(`
+eq('la publicación incluye jornadas y solicitudes', await scalar(`
   select count(*)::int from pg_publication_tables
   where pubname = 'supabase_realtime'
     and schemaname = 'public'
-    and tablename = 'jornadas'
-`), 1);
-eq('replica identity full en jornadas', await scalar(`
+    and tablename in ('jornadas', 'solicitudes_horas_extras')
+`), 2);
+eq('replica identity full en jornadas y solicitudes', await scalar(`
   select count(*)::int from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public'
-    and c.relname = 'jornadas'
+    and c.relname in ('jornadas', 'solicitudes_horas_extras')
     and c.relreplident = 'f'
-`), 1);
+`), 2);
 
 // -----------------------------------------------------------------------------
 // Perfiles y roles
@@ -890,6 +1091,10 @@ eq('sin app_metadata el usuario sí ve su propio perfil',
 eq('sin app_metadata no hay acceso a jornadas',
   await withRole('authenticated', { sub: U.empA }, async () =>
     (await q('select count(*)::int from public.jornadas')).rows[0].count),
+  0);
+eq('sin app_metadata no hay acceso a solicitudes',
+  await withRole('authenticated', { sub: U.empA }, async () =>
+    (await q('select count(*)::int from public.solicitudes_horas_extras')).rows[0].count),
   0);
 
 for (const table of BUSINESS_TABLES) {

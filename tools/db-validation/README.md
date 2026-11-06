@@ -2,7 +2,8 @@
 
 Suite que aplica las migraciones de `supabase/migrations` sobre un PostgreSQL
 17.9 **portátil** y prueba la jerarquía, la geocerca, las jornadas, las
-políticas RLS, la separación de roles y Realtime.
+solicitudes de horas extras, las políticas RLS, la separación de roles y
+Realtime.
 
 No requiere Docker, WSL2 ni permisos de administrador: `embedded-postgres`
 descarga un binario de PostgreSQL y lo ejecuta como proceso de usuario.
@@ -52,8 +53,12 @@ dejan datos ni privilegios modificados.
 - Jornadas: apertura/cierre por el propio empleado, validación de geocerca en
   base de datos, una sola jornada abierta por empleado, inmutabilidad de
   columnas sensibles, RLS por subárbol y conservación del historial.
-- Realtime: `jornadas` en la publicación `supabase_realtime` con
-  `replica identity full`.
+- Horas extras: creación de solicitudes pendientes, rango y duración válidos,
+  justificación mínima, centro de la misma empresa, aprobación/rechazo por el
+  admin del subárbol, comentario opcional, firma automática de la revisión y
+  prohibición de revisar solicitudes propias, ajenas o ya revisadas.
+- Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
+  `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
   administrativo de rol y borrado en cascada.
 - No autoelevación: `authenticated` no puede escribir `rol`, `empresa_id`,
@@ -61,7 +66,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **114 pruebas OK, 0 FAIL**.
+Resultado actual: **144 pruebas OK, 0 FAIL**.
 
 ## Límites
 
