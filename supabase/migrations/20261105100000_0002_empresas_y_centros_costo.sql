@@ -1,5 +1,5 @@
 -- =============================================================================
--- Empresa Carrousel — Núcleo backend
+-- Carrousel — Núcleo backend
 -- MT-01 / Archivo 02: empresas y jerarquía dinámica de centros de costo
 -- Fecha: 2026-11-05
 --
@@ -9,7 +9,9 @@
 --   3. Integridad cross-tenant    — el padre debe pertenecer a la misma empresa.
 --   4. Anti-ciclos y profundidad  — ruta materializada + trigger de validación.
 --   5. Propagación de ruta        — mover un centro actualiza su subárbol.
---   6. RLS y grants explícitos    — lectura del tenant; escritura solo gerente.
+--   6. Alcance jerárquico         — helper private.centro_en_alcance().
+--   7. RLS y grants explícitos    — lectura del tenant; escritura por subárbol.
+--      Las raíces y los movimientos de centros quedan reservados a service_role.
 --
 -- Depende de 0001: schema private, enum rol_usuario, helpers JWT y auditoría.
 --
@@ -173,6 +175,14 @@ security definer
 set search_path = ''
 as $$
 begin
+  -- Evita la recursión: la actualización interna del subárbol dispara este
+  -- mismo trigger a profundidad 2. Solo la sentencia del usuario (profundidad
+  -- 1 dentro de la función) propaga. No se usa WHEN pg_trigger_depth() porque
+  -- PostgreSQL evalúa el WHEN antes de incrementar la profundidad.
+  if pg_trigger_depth() > 1 then
+    return null;
+  end if;
+
   if new.ruta is distinct from old.ruta then
     -- El subárbol se reconstruye desde la nueva ruta del centro movido.
     -- ruta_padre es la ruta que debe llevar cada hijo directo.
@@ -200,22 +210,57 @@ $$;
 comment on function private.centros_costo_propagar_ruta() is
   'Recalcula la ruta de todo el subárbol cuando un centro cambia de padre.';
 
--- WHEN pg_trigger_depth() = 1: solo propaga en la sentencia del usuario, no en
--- las actualizaciones internas del propio subárbol (evita recursión).
+-- AFTER UPDATE a secas: la columna ruta la escribe el trigger BEFORE, no el SET
+-- de la sentencia, así que un "UPDATE OF ruta" nunca se dispararía al mover un
+-- centro. La función comprueba si la ruta cambió y corta la recursión por
+-- profundidad de trigger.
 create trigger centros_costo_propagar_ruta
-after update of ruta on public.centros_costo
+after update on public.centros_costo
 for each row
-when (pg_trigger_depth() = 1)
 execute function private.centros_costo_propagar_ruta();
 
 -- -----------------------------------------------------------------------------
--- 5. Privilegios de las funciones internas
+-- 5. Alcance jerárquico
+-- -----------------------------------------------------------------------------
+-- Un centro está en alcance si es el centro del JWT o un descendiente suyo.
+-- Sin claim válido, sin coincidencia de empresa o sin fila visible: FALSE.
+create or replace function private.centro_en_alcance(p_centro_id uuid)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select coalesce(
+    exists (
+      select 1
+      from public.centros_costo c
+      where c.id = p_centro_id
+        and c.empresa_id = private.current_empresa_id()
+        and (
+          c.id = private.current_centro_id()
+          or private.current_centro_id() = any (c.ruta)
+        )
+    ),
+    false
+  );
+$$;
+
+comment on function private.centro_en_alcance(uuid) is
+  'TRUE si el centro es el del JWT o un descendiente suyo dentro de la misma empresa. Fail-closed.';
+
+-- -----------------------------------------------------------------------------
+-- 6. Privilegios de las funciones internas
 -- -----------------------------------------------------------------------------
 revoke all on function private.centros_costo_set_ruta()       from public;
 revoke all on function private.centros_costo_propagar_ruta()  from public;
+revoke all on function private.centro_en_alcance(uuid)        from public;
+
+grant execute on function private.centro_en_alcance(uuid)
+  to authenticated, service_role;
 
 -- -----------------------------------------------------------------------------
--- 6. RLS: empresas
+-- 7. RLS: empresas
 -- -----------------------------------------------------------------------------
 alter table public.empresas enable row level security;
 
@@ -225,77 +270,85 @@ create policy empresas_select_tenant
   to authenticated
   using (id = (select private.current_empresa_id()));
 
-create policy empresas_update_gerente
+create policy empresas_update_admin
   on public.empresas
   for update
   to authenticated
   using (
     id = (select private.current_empresa_id())
-    and (select private.es_gerente())
+    and (select private.es_admin())
   )
   with check (
     id = (select private.current_empresa_id())
-    and (select private.es_gerente())
+    and (select private.es_admin())
   );
 
 comment on policy empresas_select_tenant on public.empresas is
   'Cada usuario solo ve su propia empresa. Sin claim válido no hay filas.';
-comment on policy empresas_update_gerente on public.empresas is
-  'Solo un gerente puede actualizar datos de su propia empresa.';
+comment on policy empresas_update_admin on public.empresas is
+  'Solo un admin puede actualizar datos de su propia empresa.';
 
 -- -----------------------------------------------------------------------------
--- 7. RLS: centros de costo
+-- 8. RLS: centros de costo
 -- -----------------------------------------------------------------------------
 alter table public.centros_costo enable row level security;
 
+-- Lectura: toda la jerarquía de la empresa. Escritura: solo el subárbol del
+-- admin. Crear una raíz (padre_id NULL) o mover un centro de padre queda
+-- reservado a service_role.
 create policy centros_costo_select_tenant
   on public.centros_costo
   for select
   to authenticated
   using (empresa_id = (select private.current_empresa_id()));
 
-create policy centros_costo_insert_gerente
+create policy centros_costo_insert_admin
   on public.centros_costo
   for insert
   to authenticated
   with check (
     empresa_id = (select private.current_empresa_id())
-    and (select private.es_gerente())
+    and (select private.es_admin())
+    and padre_id is not null
+    and private.centro_en_alcance(padre_id)
   );
 
-create policy centros_costo_update_gerente
+create policy centros_costo_update_admin
   on public.centros_costo
   for update
   to authenticated
   using (
     empresa_id = (select private.current_empresa_id())
-    and (select private.es_gerente())
+    and (select private.es_admin())
+    and private.centro_en_alcance(id)
   )
   with check (
     empresa_id = (select private.current_empresa_id())
-    and (select private.es_gerente())
+    and (select private.es_admin())
+    and private.centro_en_alcance(id)
   );
 
-create policy centros_costo_delete_gerente
+create policy centros_costo_delete_admin
   on public.centros_costo
   for delete
   to authenticated
   using (
     empresa_id = (select private.current_empresa_id())
-    and (select private.es_gerente())
+    and (select private.es_admin())
+    and private.centro_en_alcance(id)
   );
 
 comment on policy centros_costo_select_tenant on public.centros_costo is
   'Lectura limitada a los centros de la empresa del JWT.';
-comment on policy centros_costo_insert_gerente on public.centros_costo is
-  'Alta de centros solo por gerente y dentro de su empresa.';
-comment on policy centros_costo_update_gerente on public.centros_costo is
-  'Edición y movimiento de centros solo por gerente y dentro de su empresa.';
-comment on policy centros_costo_delete_gerente on public.centros_costo is
-  'Baja de centros solo por gerente y dentro de su empresa.';
+comment on policy centros_costo_insert_admin on public.centros_costo is
+  'Alta de subcentros solo por admin y dentro de su subárbol. La raíz es administrativa.';
+comment on policy centros_costo_update_admin on public.centros_costo is
+  'Edición de centros dentro del subárbol del admin. Mover de padre es administrativo.';
+comment on policy centros_costo_delete_admin on public.centros_costo is
+  'Baja de centros dentro del subárbol del admin.';
 
 -- -----------------------------------------------------------------------------
--- 8. Grants explícitos
+-- 9. Grants explícitos
 -- -----------------------------------------------------------------------------
 -- anon no recibe nada. authenticated solo recibe lo mínimo por columna:
 -- ruta, timestamps y actualizado_por quedan fuera de toda escritura del cliente.
@@ -313,6 +366,8 @@ grant update (nombre, nombre_comercial)
 grant select on table public.centros_costo to authenticated;
 grant insert (empresa_id, padre_id, codigo, nombre)
   on table public.centros_costo to authenticated;
-grant update (padre_id, codigo, nombre)
+-- padre_id no se otorga: mover un centro cambia el alcance y es una operación
+-- administrativa con service_role. El admin solo renombra o recodifica.
+grant update (codigo, nombre)
   on table public.centros_costo to authenticated;
 grant delete on table public.centros_costo to authenticated;
