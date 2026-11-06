@@ -1,8 +1,8 @@
 # Validación de base de datos
 
 Suite que aplica las migraciones de `supabase/migrations` sobre un PostgreSQL
-17.9 **portátil** y prueba la jerarquía, la geocerca, las políticas RLS y la
-separación de roles.
+17.9 **portátil** y prueba la jerarquía, la geocerca, las jornadas, las
+políticas RLS, la separación de roles y Realtime.
 
 No requiere Docker, WSL2 ni permisos de administrador: `embedded-postgres`
 descarga un binario de PostgreSQL y lo ejecuta como proceso de usuario.
@@ -47,12 +47,21 @@ dejan datos ni privilegios modificados.
 - Propagación de `ruta` al subárbol al mover un centro.
 - RLS de `empresas`, `centros_costo` y `parques` por tenant y subárbol.
 - Geocerca: rango de latitud/longitud y radio entre 1 y 10 000 m.
+- Distancia haversine, tolerancia por precisión GPS (máximo 100 m) y
+  fail-closed sin claims o con parque de otra empresa.
+- Jornadas: apertura/cierre por el propio empleado, validación de geocerca en
+  base de datos, una sola jornada abierta por empleado, inmutabilidad de
+  columnas sensibles, RLS por subárbol y conservación del historial.
+- Realtime: `jornadas` en la publicación `supabase_realtime` con
+  `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
   administrativo de rol y borrado en cascada.
 - No autoelevación: `authenticated` no puede escribir `rol`, `empresa_id`,
-  `centro_costo_id`, `ruta`, `actualizado_por` ni `auth.users`.
+  `empleado_id`, `centro_costo_id`, `ruta`, `actualizado_por` ni `auth.users`.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
+
+Resultado actual: **114 pruebas OK, 0 FAIL**.
 
 ## Límites
 
