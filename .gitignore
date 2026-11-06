@@ -1,0 +1,10 @@
+# IDE
+.idea/
+*.iml
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Clúster temporal de la validación local
+tools/db-validation/data*/
