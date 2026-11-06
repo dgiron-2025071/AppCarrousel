@@ -163,6 +163,12 @@ const P = {
   sibling: 'c1000000-0000-4000-8000-000000000004',
   b: 'c1000000-0000-4000-8000-000000000005',
 };
+const J = {
+  aCerrada: 'd1000000-0000-4000-8000-000000000001',
+  grandAbierta: 'd1000000-0000-4000-8000-000000000002',
+  bCerrada: 'd1000000-0000-4000-8000-000000000003',
+};
+
 
 group('Datos de prueba');
 await q(`
@@ -211,30 +217,53 @@ await q(`
   U.noClaims,
 ]);
 
+// Jornadas históricas: se siembran como dueño (auth.uid() NULL), igual que una
+// carga administrativa. Sirven para probar visibilidad entre roles.
+await q(`
+  insert into public.jornadas (
+    id, empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+    entrada_lat, entrada_lon, entrada_precision_metros, entrada_dentro_geocerca,
+    salida_lat, salida_lon, salida_precision_metros, salida_dentro_geocerca
+  ) values
+    ($1, $2, $3, $4, now() - interval '8 hours', now() - interval '1 hour',
+     14.6350, -90.5070, 5, true, 14.6350, -90.5070, 5, true),
+    ($5, $2, $6, $7, now() - interval '2 hours', null,
+     14.6351, -90.5071, 5, true, null, null, null, null),
+    ($8, $9, $10, $11, now() - interval '6 hours', now() - interval '3 hours',
+     14.6400, -90.5100, 5, true, 14.6400, -90.5100, 5, true);
+`, [
+  J.aCerrada, A.empresa, U.empA, P.child,
+  J.grandAbierta, U.empGrand, P.grand,
+  J.bCerrada, B.empresa, U.empB, P.b,
+]);
+
 console.log('  Datos insertados.');
 
 // -----------------------------------------------------------------------------
 // Estructura
 // -----------------------------------------------------------------------------
 group('Estructura');
-eq('4 tablas de negocio', await scalar(`
+const BUSINESS_TABLES = [
+  'empresas', 'centros_costo', 'parques', 'perfiles', 'jornadas',
+];
+eq('5 tablas de negocio', await scalar(`
   select count(*)::int from information_schema.tables
   where table_schema = 'public'
-    and table_name in ('empresas','centros_costo','parques','perfiles')
-`), 4);
-eq('RLS habilitada en las 4 tablas', await scalar(`
+    and table_name = any ($1::text[])
+`, [BUSINESS_TABLES]), 5);
+eq('RLS habilitada en las 5 tablas', await scalar(`
   select count(*)::int from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public'
-    and c.relname in ('empresas','centros_costo','parques','perfiles')
+    and c.relname = any ($1::text[])
     and c.relrowsecurity
-`), 4);
+`, [BUSINESS_TABLES]), 5);
 eq('extensiones citext y pgcrypto', await scalar(`
   select count(*)::int from pg_extension where extname in ('citext','pgcrypto')
 `), 2);
-eq('políticas RLS creadas (2+4+4+1)', await scalar(`
+eq('políticas RLS creadas (2+4+4+1+3)', await scalar(`
   select count(*)::int from pg_policies where schemaname = 'public'
-`), 11);
+`), 14);
 
 // -----------------------------------------------------------------------------
 // Jerarquía
@@ -519,6 +548,229 @@ await expectError('parque no puede apuntar a centro de otra empresa', `
 `, [A.empresa, B.root], '23503');
 
 // -----------------------------------------------------------------------------
+// Geocerca
+// -----------------------------------------------------------------------------
+group('Geocerca');
+eq('distancia al mismo punto es 0', await scalar(
+  'select private.distancia_metros(14.6350, -90.5070, 14.6350, -90.5070)'), 0);
+ok('distancia entre parques lejanos supera 100 m', (await scalar(
+  'select private.distancia_metros(14.6350, -90.5070, 14.6400, -90.5100)')) > 100);
+
+const empAClaims = claims(U.empA, A.empresa, A.child, 'empleado');
+eq('en_geocerca acepta el centro del parque',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca($1, 14.6350, -90.5070, 0)', [P.child])),
+  true);
+eq('en_geocerca rechaza un punto lejano',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca($1, 14.7000, -90.6000, 0)', [P.child])),
+  false);
+// 0.00135° de latitud ≈ 150 m: fuera del radio de 100 m, dentro si el GPS
+// declara 100 m de precisión.
+eq('en_geocerca rechaza 150 m sin tolerancia de GPS',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca($1, 14.63635, -90.5070, 0)', [P.child])),
+  false);
+eq('en_geocerca tolera la precisión GPS declarada',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca($1, 14.63635, -90.5070, 100)', [P.child])),
+  true);
+eq('en_geocerca no cruza empresas',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca($1, 14.6400, -90.5100, 0)', [P.b])),
+  false);
+eq('en_geocerca falla cerrado sin claims',
+  await withRole('authenticated', { sub: U.empA }, async () =>
+    scalar('select private.en_geocerca($1, 14.6350, -90.5070, 0)', [P.child])),
+  false);
+
+// -----------------------------------------------------------------------------
+// Jornadas
+// -----------------------------------------------------------------------------
+group('Jornadas y marcaje');
+
+const jornadaCreada = await withRole('authenticated', empAClaims, async () => {
+  const r = await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon, entrada_precision_metros)
+    values ($1, 14.6350, -90.5070, 5)
+    returning empresa_id, empleado_id, entrada_dentro_geocerca, salida_en
+  `, [P.child]);
+  return r.rows[0];
+});
+eq('el empleado abre una jornada en su parque',
+  [jornadaCreada.empresa_id, jornadaCreada.empleado_id,
+    jornadaCreada.entrada_dentro_geocerca, jornadaCreada.salida_en],
+  [A.empresa, U.empA, true, null]);
+
+const jornadaCerrada = await withRole('authenticated', empAClaims, async () => {
+  const id = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070) returning id
+  `, [P.child])).rows[0].id;
+  const r = await q(`
+    update public.jornadas
+    set salida_lat = 14.6350, salida_lon = -90.5070, salida_precision_metros = 5
+    where id = $1
+  `, [id]);
+  const row = (await q(`
+    select salida_en is not null as cerrada, salida_dentro_geocerca
+    from public.jornadas where id = $1
+  `, [id])).rows[0];
+  return [r.rowCount, row.cerrada, row.salida_dentro_geocerca];
+});
+eq('el empleado cierra su jornada con GPS válido', jornadaCerrada, [1, true, true]);
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const id = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070) returning id
+  `, [P.child])).rows[0].id;
+  try {
+    await q(`
+      update public.jornadas set salida_lat = 14.7000, salida_lon = -90.6000 where id = $1
+    `, [id]);
+    ok('rechaza la salida fuera de la geocerca', false, 'no lanzó error');
+  } catch (error) {
+    ok('rechaza la salida fuera de la geocerca', error.code === '23514',
+      `code=${error.code}, msg=${error.message}`);
+  }
+} finally {
+  await q('rollback');
+}
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070)
+  `, [P.child]);
+  try {
+    await q(`
+      insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+      values ($1, 14.6350, -90.5070)
+    `, [P.child]);
+    ok('rechaza dos jornadas abiertas del mismo empleado', false, 'no lanzó error');
+  } catch (error) {
+    ok('rechaza dos jornadas abiertas del mismo empleado', error.code === '23505',
+      `code=${error.code}, msg=${error.message}`);
+  }
+} finally {
+  await q('rollback');
+}
+
+await expectRoleError('no abre jornada fuera de la geocerca', 'authenticated', empAClaims, `
+  insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+  values ($1, 14.7000, -90.6000)
+`, [P.child], '23514');
+
+await expectRoleError('no abre jornada en un parque de otra empresa', 'authenticated', empAClaims, `
+  insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+  values ($1, 14.6400, -90.5100)
+`, [P.b], '23514');
+
+await expectRoleError('no falsifica la empresa de la jornada', 'authenticated', empAClaims, `
+  insert into public.jornadas (empresa_id, parque_id, entrada_lat, entrada_lon)
+  values ($1, $2, 14.6350, -90.5070)
+`, [A.empresa, P.child], '42501');
+
+await expectRoleError('no abre jornada a nombre de otro', 'authenticated', empAClaims, `
+  insert into public.jornadas (empleado_id, parque_id, entrada_lat, entrada_lon)
+  values ($1, $2, 14.6350, -90.5070)
+`, [U.empGrand, P.child], '42501');
+
+await expectRoleError('no escribe la salida al abrir', 'authenticated', empAClaims, `
+  insert into public.jornadas (parque_id, entrada_lat, entrada_lon, salida_en)
+  values ($1, 14.6350, -90.5070, now())
+`, [P.child], '42501');
+
+await expectRoleError('no escribe el veredicto de geocerca', 'authenticated', empAClaims, `
+  insert into public.jornadas (parque_id, entrada_lat, entrada_lon, entrada_dentro_geocerca)
+  values ($1, 14.6350, -90.5070, true)
+`, [P.child], '42501');
+
+eq('el empleado A ve solo sus jornadas',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q('select id from public.jornadas order by id')).rows.map((r) => r.id)),
+  [J.aCerrada]);
+eq('el empleado B ve solo sus jornadas',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    (await q('select id from public.jornadas order by id')).rows.map((r) => r.id)),
+  [J.bCerrada]);
+eq('el admin ve las jornadas de su subárbol',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q('select id from public.jornadas order by id')).rows.map((r) => r.id)),
+  [J.aCerrada, J.grandAbierta].sort());
+eq('el admin raíz ve las jornadas de su empresa',
+  await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+    (await q('select count(*)::int from public.jornadas')).rows[0].count),
+  2);
+eq('el admin A no ve jornadas de B',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q('select count(*)::int from public.jornadas where id = $1', [J.bCerrada])).rows[0].count),
+  0);
+eq('otro empleado no cierra una jornada ajena',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`
+      update public.jornadas
+      set salida_lat = 14.6351, salida_lon = -90.5071
+      where id = $1
+    `, [J.grandAbierta])).rowCount),
+  0);
+eq('el admin no cierra jornadas de su equipo',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      update public.jornadas
+      set salida_lat = 14.6351, salida_lon = -90.5071
+      where id = $1
+    `, [J.grandAbierta])).rowCount),
+  0);
+
+await expectRoleError('no se pueden borrar jornadas', 'authenticated', empAClaims,
+  'delete from public.jornadas where id = $1', [J.aCerrada], '42501');
+
+await q('begin');
+try {
+  const id = randomUUID();
+  await q(`
+    insert into public.jornadas (
+      id, empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+      entrada_lat, entrada_lon, entrada_dentro_geocerca,
+      salida_lat, salida_lon, salida_dentro_geocerca
+    ) values (
+      $1, $2, $3, $4, now() - interval '30 hours', now() - interval '25 hours',
+      0, 0, false, 0, 0, false
+    )
+  `, [id, A.empresa, U.empA, P.child]);
+  eq('service_role siembra jornadas históricas sin geocerca',
+    await scalar('select count(*)::int from public.jornadas where id = $1', [id]), 1);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
+// Tiempo real
+// -----------------------------------------------------------------------------
+group('Realtime');
+eq('la publicación incluye jornadas', await scalar(`
+  select count(*)::int from pg_publication_tables
+  where pubname = 'supabase_realtime'
+    and schemaname = 'public'
+    and tablename = 'jornadas'
+`), 1);
+eq('replica identity full en jornadas', await scalar(`
+  select count(*)::int from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relname = 'jornadas'
+    and c.relreplident = 'f'
+`), 1);
+
+// -----------------------------------------------------------------------------
 // Perfiles y roles
 // -----------------------------------------------------------------------------
 group('Perfiles y separación de roles');
@@ -635,8 +887,12 @@ eq('sin app_metadata el usuario sí ve su propio perfil',
   await withRole('authenticated', { sub: U.empA }, async () =>
     (await q('select count(*)::int from public.perfiles')).rows[0].count),
   1);
+eq('sin app_metadata no hay acceso a jornadas',
+  await withRole('authenticated', { sub: U.empA }, async () =>
+    (await q('select count(*)::int from public.jornadas')).rows[0].count),
+  0);
 
-for (const table of ['empresas', 'centros_costo', 'parques', 'perfiles']) {
+for (const table of BUSINESS_TABLES) {
   await expectRoleError(`anon sin acceso a ${table}`, 'anon', {},
     `select count(*) from public.${table}`, [], '42501');
 }
