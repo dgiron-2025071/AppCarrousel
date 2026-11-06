@@ -8,3 +8,6 @@ node_modules/
 
 # Clúster temporal de la validación local
 tools/db-validation/data*/
+
+# Metadatos temporales de Supabase CLI
+supabase/.temp/
