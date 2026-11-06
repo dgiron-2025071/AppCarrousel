@@ -1,5 +1,5 @@
 -- =============================================================================
--- Empresa Carrousel — Núcleo backend
+-- Carrousel — Núcleo backend
 -- MT-01 / Archivo 04: perfiles y separación de roles
 -- Fecha: 2026-11-05
 --
@@ -7,14 +7,14 @@
 --   1. public.perfiles                 — espejo de auth.users con alcance y rol.
 --   2. Sincronización desde auth.users — materializa los claims de app_metadata.
 --   3. Integridad cross-tenant         — empresa y centro deben coincidir.
---   4. RLS de lectura                  — perfil propio; gerente ve su subárbol.
+--   4. RLS de lectura                  — perfil propio; admin ve su subárbol.
 --   5. Sin escritura del cliente       — rol y alcance solo los escribe el servidor.
 --
 -- Modelo de aprovisionamiento:
 --   La Edge Function con service_role crea el usuario y escribe en
 --   app_metadata: empresa_id, centro_costo_id y rol. El trigger de auth.users
 --   materializa el perfil. Un empleado no puede escribir auth.users ni
---   public.perfiles, por lo que no puede autoelevarse a gerente.
+--   public.perfiles, por lo que no puede autoelevarse a admin.
 --
 -- Depende de 0001 (rol_usuario, safe_uuid) y 0002 (empresas, centros_costo).
 --
@@ -80,7 +80,7 @@ begin
 
   v_rol := case new.raw_app_meta_data ->> 'rol'
              when 'empleado' then 'empleado'::public.rol_usuario
-             when 'gerente'  then 'gerente'::public.rol_usuario
+             when 'admin'  then 'admin'::public.rol_usuario
              else null
            end;
 
@@ -147,13 +147,13 @@ create policy perfiles_select_propio_o_equipo
     id = (select auth.uid())
     or (
       empresa_id = (select private.current_empresa_id())
-      and (select private.es_gerente())
+      and (select private.es_admin())
       and private.centro_en_alcance(centro_costo_id)
     )
   );
 
 comment on policy perfiles_select_propio_o_equipo on public.perfiles is
-  'Cada usuario ve su perfil; un gerente ve además los perfiles de su subárbol.';
+  'Cada usuario ve su perfil; un admin ve además los perfiles de su subárbol.';
 
 -- Sin políticas de INSERT/UPDATE/DELETE para authenticated: el perfil y el rol
 -- solo los modifica el trigger (service_role) o una operación administrativa.
