@@ -57,6 +57,9 @@ dejan datos ni privilegios modificados.
   una jornada abierta aunque el parque se desactive durante el turno, rechazo
   de precisión GPS negativa y bloqueo de escritura para perfiles inactivos
   (jornadas, solicitudes y administración de centros).
+- Revocación de lectura: un admin inactivo solo ve su propio perfil, jornadas y
+  solicitudes; pierde de inmediato el acceso al equipo sin esperar a que
+  expire el JWT. Un empleado inactivo conserva la lectura de su información.
 - Horas extras: creación de solicitudes pendientes, rango y duración válidos,
   justificación mínima, centro de la misma empresa, aprobación/rechazo por el
   admin del subárbol, comentario opcional, firma automática de la revisión y
@@ -70,7 +73,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **155 pruebas OK, 0 FAIL**.
+Resultado actual: **159 pruebas OK, 0 FAIL**.
 
 ## Límites
 
