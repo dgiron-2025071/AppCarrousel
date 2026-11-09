@@ -1,0 +1,14 @@
+# El repositorio usa LF en todos los archivos de texto para que las
+# validaciones (deno fmt, Flutter, SQL y CI) sean idénticas en Windows,
+# Linux y macOS.
+* text=auto eol=lf
+
+# Binarios: no se normalizan.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.jar binary
+*.keystore binary
+*.jks binary
