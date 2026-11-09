@@ -7,6 +7,7 @@ import '../../core/widgets/estado_widgets.dart';
 import '../../data/models/solicitud_horas_extras.dart';
 import '../../providers/app_providers.dart';
 import '../solicitudes/widgets/solicitud_card.dart';
+import 'invitar_usuario_page.dart';
 
 /// Bandeja de aprobación del administrador.
 ///
@@ -184,6 +185,16 @@ class AprobacionesPage extends ConsumerWidget {
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const InvitarUsuarioPage(),
+                  ),
+                ),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Invitar usuario'),
               ),
               const SizedBox(height: 18),
               _Seccion(

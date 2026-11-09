@@ -8,6 +8,7 @@ import '../data/models/perfil.dart';
 import '../data/models/solicitud_horas_extras.dart';
 import '../data/repositories/auth_repository.dart';
 import '../data/repositories/catalogo_repository.dart';
+import '../data/repositories/invitacion_repository.dart';
 import '../data/repositories/jornada_repository.dart';
 import '../data/repositories/solicitud_repository.dart';
 
@@ -29,6 +30,10 @@ final solicitudRepositoryProvider = Provider<SolicitudRepository>(
 
 final catalogoRepositoryProvider = Provider<CatalogoRepository>(
   (ref) => CatalogoRepository(ref.watch(supabaseProvider)),
+);
+
+final invitacionRepositoryProvider = Provider<InvitacionRepository>(
+  (ref) => InvitacionRepository(ref.watch(supabaseProvider)),
 );
 
 final authStateProvider = StreamProvider<AuthState>(
