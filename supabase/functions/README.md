@@ -77,11 +77,38 @@ Respuesta `201`:
 
 ### Validación local
 
+Verificación estática:
+
 ```bash
 npx -y deno check supabase/functions/invitar-usuario/index.ts
 npx -y deno lint supabase/functions/invitar-usuario/index.ts
 npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
 ```
 
-El despliegue y la prueba contra un proyecto Supabase real quedan pendientes
-de credenciales; no se versionan claves ni tokens.
+Pruebas de integración (no requieren credenciales ni Docker):
+
+```bash
+npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
+```
+
+El arnés levanta un servidor HTTP que emula los endpoints de Supabase Auth y
+PostgREST usados por la función, arranca `invitar-usuario` como subproceso en un
+puerto libre (`PORT`) y verifica **21 escenarios**:
+
+- CORS, método distinto de `POST` y ausencia o invalidez de la sesión.
+- Perfil inexistente, inactivo, con rol distinto de `admin` o con error de
+  consulta.
+- Validaciones de JSON, correo, nombre, rol y UUID del centro.
+- Centro de otra empresa, centro fuera del subárbol y error al consultarlo.
+- Invitación exitosa de `empleado` y de `admin`, comprobando que
+  `empresa_id` sale del perfil del solicitante y no del cuerpo.
+- Correo ya registrado (`409`), error genérico de invitación (`502`).
+- Error al escribir `app_metadata`: responde `500` y borra el usuario invitado
+  (rollback verificado).
+
+Las consultas de perfil y centro usan `.limit(1)` en lugar de `.maybeSingle()`
+para que el contrato con PostgREST sea explícito y no dependa de códigos
+`406/PGRST116`.
+
+El despliegue y la prueba contra un proyecto Supabase real quedan pendientes de
+credenciales; no se versionan claves ni tokens.
