@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/perfil.dart';
 import '../../providers/app_providers.dart';
+import '../admin/invitar_usuario_page.dart';
 import '../auth/auth_controller.dart';
 import '../auth/reset_password_page.dart';
 
@@ -132,6 +133,40 @@ class PerfilPage extends ConsumerWidget {
           etiqueta: 'Correo electrónico',
           valor: email.isEmpty ? 'No disponible' : email,
         ),
+        if (perfil.esAdmin) ...[
+          const SizedBox(height: 18),
+          Text(
+            'Administración',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: colores.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: colores.outlineVariant, width: 0.7),
+            ),
+            child: ListTile(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              leading: const Icon(Icons.person_add_alt_1_rounded),
+              title: const Text('Invitar usuarios'),
+              subtitle: const Text(
+                'Da acceso a un empleado o administrador de tu subárbol.',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const InvitarUsuarioPage(),
+                ),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 18),
         Text(
           'Seguridad',
