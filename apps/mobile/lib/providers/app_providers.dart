@@ -32,7 +32,7 @@ final catalogoRepositoryProvider = Provider<CatalogoRepository>(
   (ref) => CatalogoRepository(ref.watch(supabaseProvider)),
 );
 
-final invitacionRepositoryProvider = Provider<InvitacionRepository>(
+final invitacionRepositoryProvider = Provider<InvitacionGateway>(
   (ref) => InvitacionRepository(ref.watch(supabaseProvider)),
 );
 

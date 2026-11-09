@@ -3,16 +3,27 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/errors/error_messages.dart';
 import '../models/invitacion_usuario.dart';
 
+/// Contrato del cliente de invitaciones, para poder sustituirlo en pruebas.
+abstract class InvitacionGateway {
+  Future<InvitacionUsuario> invitar({
+    required String email,
+    required String nombreCompleto,
+    required String rol,
+    required String centroCostoId,
+  });
+}
+
 /// Cliente de la Edge Function `invitar-usuario`.
 ///
 /// La función valida que el solicitante sea un administrador activo y que el
 /// centro destino esté dentro de su subárbol. La app nunca escribe claims ni
 /// crea usuarios directamente: solo envía el formulario.
-class InvitacionRepository {
+class InvitacionRepository implements InvitacionGateway {
   InvitacionRepository(this._client);
 
   final SupabaseClient _client;
 
+  @override
   Future<InvitacionUsuario> invitar({
     required String email,
     required String nombreCompleto,
@@ -38,12 +49,12 @@ class InvitacionRepository {
       }
       return InvitacionUsuario.fromMap(datos);
     } on FunctionException catch (error) {
-      throw AppException(_mensajeDeFuncion(error));
+      throw AppException(mensajeDeErrorDeFuncion(error));
     }
   }
 }
 
-String _mensajeDeFuncion(FunctionException error) {
+String mensajeDeErrorDeFuncion(FunctionException error) {
   final mensaje = _detalleDeError(error.details);
 
   switch (error.status) {
