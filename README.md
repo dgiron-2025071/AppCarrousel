@@ -170,6 +170,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-09 | Finales de línea LF para validaciones reproducibles | `dgiron-2025071` | [#22](https://github.com/dgiron-2025071/AppCarrousel/pull/22) | Mergeado a `develop` | `deno fmt --check` |
 | 2026-11-09 | Pantalla de invitación de usuarios para administradores | `dgiron-2025071` | [#23](https://github.com/dgiron-2025071/AppCarrousel/pull/23) | Mergeado a `develop` | `flutter analyze`, 5 pruebas, APK debug |
 | 2026-11-09 | Pruebas de invitación y subárboles en Flutter | `dgiron-2025071` | [#25](https://github.com/dgiron-2025071/AppCarrousel/pull/25) | Mergeado a `develop` | 18 pruebas, `flutter analyze`, APK debug |
+| 2026-11-09 | Migración `0007` — endurecimiento operativo del backend | `dgiron-2025071` | [#26](https://github.com/dgiron-2025071/AppCarrousel/pull/26) | En revisión | 155 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
