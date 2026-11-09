@@ -1189,6 +1189,11 @@ try {
     insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
     values ($1, now(), now() + interval '1 hour', 'Solicitud de un perfil inactivo')
   `, [A.grand], '42501');
+
+  eq('un perfil inactivo conserva la lectura de su propio perfil',
+    await withRole('authenticated', inactivoClaims, async () =>
+      (await q('select id from public.perfiles')).rows.map((r) => r.id)),
+    [inactivoEmp]);
 } finally {
   await q('delete from auth.users where id = $1', [inactivoEmp]);
 }
@@ -1216,6 +1221,19 @@ try {
     insert into public.centros_costo (empresa_id, padre_id, codigo, nombre)
     values ($1, $2, 'INACTIVO', 'Centro inactivo')
   `, [A.empresa, A.child], '42501');
+
+  eq('un admin inactivo solo ve su propio perfil',
+    await withRole('authenticated', inactivoAdminClaims, async () =>
+      (await q('select id from public.perfiles')).rows.map((r) => r.id)),
+    [inactivoAdmin]);
+  eq('un admin inactivo no ve jornadas de su equipo',
+    await withRole('authenticated', inactivoAdminClaims, async () =>
+      (await q('select count(*)::int from public.jornadas')).rows[0].count),
+    0);
+  eq('un admin inactivo no ve solicitudes de su equipo',
+    await withRole('authenticated', inactivoAdminClaims, async () =>
+      (await q('select count(*)::int from public.solicitudes_horas_extras')).rows[0].count),
+    0);
 } finally {
   await q('delete from auth.users where id = $1', [inactivoAdmin]);
 }
