@@ -165,6 +165,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-06 | Migración `0006` — horas extras y aprobación | `dgiron-2025071` | [#18](https://github.com/dgiron-2025071/AppCarrousel/pull/18) | Mergeado a `develop` | 144 pruebas OK |
 | 2026-11-06 | App Flutter conectada a Supabase + Edge Function de invitación | `dgiron-2025071` | [#19](https://github.com/dgiron-2025071/AppCarrousel/pull/19) | Mergeado a `develop` | `flutter analyze`, APK debug, `deno check` |
 | 2026-11-09 | Pruebas de integración de la Edge Function de invitación | `dgiron-2025071` | [#21](https://github.com/dgiron-2025071/AppCarrousel/pull/21) | Mergeado a `develop` | 21 pruebas Deno OK |
+| 2026-11-09 | Finales de línea LF para validaciones reproducibles | `dgiron-2025071` | [#22](https://github.com/dgiron-2025071/AppCarrousel/pull/22) | Mergeado a `develop` | `deno fmt --check` |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
