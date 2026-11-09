@@ -85,6 +85,7 @@ La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni
 - **Historial propio** de solicitudes con estado, comentario del administrador y actualización en tiempo real.
 - **Aprobaciones del admin:** solicitudes del subárbol con nombre del especialista, justificación, rango y comentario opcional al aprobar o rechazar. El resultado le llega al especialista por Realtime.
 - **Perfil:** datos de la cuenta, cambio de contraseña y cierre de sesión.
+- **Invitación de usuarios (admin):** correo, nombre, rol y centro de costo dentro de su subárbol. La pantalla consume la Edge Function `invitar-usuario`, muestra los errores del servidor y calcula el subárbol con la jerarquía dinámica de `centros_costo` (sin datos hardcodeados).
 
 ### Estructura
 
@@ -166,6 +167,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-06 | App Flutter conectada a Supabase + Edge Function de invitación | `dgiron-2025071` | [#19](https://github.com/dgiron-2025071/AppCarrousel/pull/19) | Mergeado a `develop` | `flutter analyze`, APK debug, `deno check` |
 | 2026-11-09 | Pruebas de integración de la Edge Function de invitación | `dgiron-2025071` | [#21](https://github.com/dgiron-2025071/AppCarrousel/pull/21) | Mergeado a `develop` | 21 pruebas Deno OK |
 | 2026-11-09 | Finales de línea LF para validaciones reproducibles | `dgiron-2025071` | [#22](https://github.com/dgiron-2025071/AppCarrousel/pull/22) | Mergeado a `develop` | `deno fmt --check` |
+| 2026-11-09 | Pantalla de invitación de usuarios para administradores | `dgiron-2025071` | [#23](https://github.com/dgiron-2025071/AppCarrousel/pull/23) | Mergeado a `develop` | `flutter analyze`, 5 pruebas, APK debug |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -228,9 +230,8 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 
 1. Desplegar `invitar-usuario` en el proyecto Supabase real y probar el flujo completo de invitación con correo.
 2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible.
-3. Añadir la pantalla de invitación para administradores en la app (consumo de la Edge Function).
-4. Añadir pruebas de widget/unitarias de la app Flutter.
-5. Cerrar MT-01 con el merge de `develop` a `main`.
+3. Ampliar las pruebas de widget/unitarias de la app Flutter (ya existen pruebas de la resolución de subárboles de centros).
+4. Cerrar MT-01 con el merge de `develop` a `main`.
 
 ## Seguridad
 
