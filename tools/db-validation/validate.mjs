@@ -1058,6 +1058,169 @@ eq('service_role puede corregir un perfil',
   1);
 
 // -----------------------------------------------------------------------------
+// Endurecimiento operativo (migración 0007)
+// -----------------------------------------------------------------------------
+group('Endurecimiento operativo');
+
+eq('parque_en_alcance acepta un parque del subárbol',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.parque_en_alcance($1)', [P.grand])),
+  true);
+eq('parque_en_alcance rechaza un parque hermano',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.parque_en_alcance($1)', [P.sibling])),
+  false);
+
+await expectRoleError('no abre jornada en un parque fuera de su subárbol', 'authenticated',
+  empAClaims, `
+  insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+  values ($1, 14.6352, -90.5072)
+`, [P.sibling], '42501');
+
+await expectRoleError('rechaza una precisión GPS negativa al abrir', 'authenticated',
+  empAClaims, `
+  insert into public.jornadas (parque_id, entrada_lat, entrada_lon, entrada_precision_metros)
+  values ($1, 14.6350, -90.5070, -5)
+`, [P.child], '23514');
+
+// Un parque desactivado no acepta entradas nuevas...
+await q('begin');
+try {
+  await q('update public.parques set activo = false where id = $1', [P.child]);
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  try {
+    await q(`
+      insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+      values ($1, 14.6350, -90.5070)
+    `, [P.child]);
+    ok('no abre jornada en un parque inactivo', false, 'no lanzó error');
+  } catch (error) {
+    ok('no abre jornada en un parque inactivo', error.code === '23514',
+      `code=${error.code}, msg=${error.message}`);
+  }
+} finally {
+  await q('rollback');
+}
+
+// ...pero la jornada ya abierta debe poder cerrarse si el parque se desactiva
+// durante el turno. Si no, el empleado queda con una jornada abierta eterna.
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const id = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070) returning id
+  `, [P.child])).rows[0].id;
+
+  await q('reset role');
+  await q('update public.parques set activo = false where id = $1', [P.child]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const r = await q(`
+    update public.jornadas
+    set salida_lat = 14.6350, salida_lon = -90.5070, salida_precision_metros = 5
+    where id = $1
+  `, [id]);
+  const row = (await q(`
+    select salida_en is not null as cerrada, salida_dentro_geocerca
+    from public.jornadas where id = $1
+  `, [id])).rows[0];
+  eq('cierra la jornada aunque el parque se haya desactivado',
+    [r.rowCount, row.cerrada, row.salida_dentro_geocerca], [1, true, true]);
+} finally {
+  await q('rollback');
+}
+
+// Un perfil inactivo conserva historial pero no inicia trabajo nuevo.
+const inactivoEmp = randomUUID();
+try {
+  await q(`
+    insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data)
+    values ($1, 'inactivo.emp@example.com', $2::jsonb,
+            '{"nombre_completo":"Empleado Inactivo"}'::jsonb)
+  `, [inactivoEmp, appMeta(A.empresa, A.child, 'empleado')]);
+  const inactivoClaims = claims(inactivoEmp, A.empresa, A.child, 'empleado');
+
+  // Abre una jornada mientras está activo, desactiva el perfil y la cierra.
+  // Todo dentro de una transacción para que el perfil vuelva a quedar activo
+  // al hacer rollback; la desactivación definitiva se hace después.
+  await q('begin');
+  try {
+    await q('set local role authenticated');
+    await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(inactivoClaims)]);
+    const jornadaInactivo = (await q(`
+      insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+      values ($1, 14.6350, -90.5070) returning id
+    `, [P.child])).rows[0].id;
+
+    await q('reset role');
+    await q('update public.perfiles set activo = false where id = $1', [inactivoEmp]);
+
+    await q('set local role authenticated');
+    await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(inactivoClaims)]);
+    const r = await q(`
+      update public.jornadas
+      set salida_lat = 14.6350, salida_lon = -90.5070, salida_precision_metros = 5
+      where id = $1
+    `, [jornadaInactivo]);
+    const row = (await q(`
+      select salida_en is not null as cerrada, salida_dentro_geocerca
+      from public.jornadas where id = $1
+    `, [jornadaInactivo])).rows[0];
+    eq('un perfil inactivo sí cierra su jornada abierta',
+      [r.rowCount, row.cerrada, row.salida_dentro_geocerca], [1, true, true]);
+  } finally {
+    await q('rollback');
+  }
+
+  await q('update public.perfiles set activo = false where id = $1', [inactivoEmp]);
+
+  await expectRoleError('un perfil inactivo no abre jornadas', 'authenticated',
+    inactivoClaims, `
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070)
+  `, [P.child], '42501');
+
+  await expectRoleError('un perfil inactivo no crea solicitudes', 'authenticated',
+    inactivoClaims, `
+    insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+    values ($1, now(), now() + interval '1 hour', 'Solicitud de un perfil inactivo')
+  `, [A.grand], '42501');
+} finally {
+  await q('delete from auth.users where id = $1', [inactivoEmp]);
+}
+
+// Un admin inactivo conserva lectura pero no puede aprobar.
+const inactivoAdmin = randomUUID();
+try {
+  await q(`
+    insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data)
+    values ($1, 'inactivo.admin@example.com', $2::jsonb,
+            '{"nombre_completo":"Admin Inactivo"}'::jsonb)
+  `, [inactivoAdmin, appMeta(A.empresa, A.child, 'admin')]);
+  await q('update public.perfiles set activo = false where id = $1', [inactivoAdmin]);
+  const inactivoAdminClaims = claims(inactivoAdmin, A.empresa, A.child, 'admin');
+
+  eq('un admin inactivo no aprueba solicitudes',
+    await withRole('authenticated', inactivoAdminClaims, async () =>
+      (await q(`
+        update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
+      `, [S.adminPropia])).rowCount),
+    0);
+
+  await expectRoleError('un admin inactivo no crea centros', 'authenticated',
+    inactivoAdminClaims, `
+    insert into public.centros_costo (empresa_id, padre_id, codigo, nombre)
+    values ($1, $2, 'INACTIVO', 'Centro inactivo')
+  `, [A.empresa, A.child], '42501');
+} finally {
+  await q('delete from auth.users where id = $1', [inactivoAdmin]);
+}
+
+// -----------------------------------------------------------------------------
 // Auditoría
 // -----------------------------------------------------------------------------
 group('Auditoría');

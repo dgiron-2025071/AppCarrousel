@@ -53,6 +53,10 @@ dejan datos ni privilegios modificados.
 - Jornadas: apertura/cierre por el propio empleado, validación de geocerca en
   base de datos, una sola jornada abierta por empleado, inmutabilidad de
   columnas sensibles, RLS por subárbol y conservación del historial.
+- Endurecimiento operativo: marcaje limitado a parques del subárbol, cierre de
+  una jornada abierta aunque el parque se desactive durante el turno, rechazo
+  de precisión GPS negativa y bloqueo de escritura para perfiles inactivos
+  (jornadas, solicitudes y administración de centros).
 - Horas extras: creación de solicitudes pendientes, rango y duración válidos,
   justificación mínima, centro de la misma empresa, aprobación/rechazo por el
   admin del subárbol, comentario opcional, firma automática de la revisión y
@@ -66,7 +70,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **144 pruebas OK, 0 FAIL**.
+Resultado actual: **155 pruebas OK, 0 FAIL**.
 
 ## Límites
 
