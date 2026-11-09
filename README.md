@@ -159,7 +159,7 @@ npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
 | 2026-11-06 | Arnés de validación con PostgreSQL portátil | `dgiron-2025071` | [#16](https://github.com/dgiron-2025071/AppCarrousel/pull/16) | Mergeado a `develop` | 144 pruebas |
 | 2026-11-06 | Migración `0005` — jornadas y geocerca | `dgiron-2025071` | [#17](https://github.com/dgiron-2025071/AppCarrousel/pull/17) | Mergeado a `develop` | 144 pruebas OK |
 | 2026-11-06 | Migración `0006` — horas extras y aprobación | `dgiron-2025071` | [#18](https://github.com/dgiron-2025071/AppCarrousel/pull/18) | Mergeado a `develop` | 144 pruebas OK |
-| 2026-11-06 | App Flutter conectada a Supabase + Edge Function de invitación | `dgiron-2025071` | [#19](https://github.com/dgiron-2025071/AppCarrousel/pull/19) | En revisión | `flutter analyze`, APK debug, `deno check` |
+| 2026-11-06 | App Flutter conectada a Supabase + Edge Function de invitación | `dgiron-2025071` | [#19](https://github.com/dgiron-2025071/AppCarrousel/pull/19) | Mergeado a `develop` | `flutter analyze`, APK debug, `deno check` |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
