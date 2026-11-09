@@ -61,159 +61,166 @@ function error(mensaje: string, status = 400): Response {
   return json({ error: mensaje }, status);
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
-  }
-  if (req.method !== "POST") {
-    return error("Método no permitido.", 405);
-  }
+const PORT = Number(Deno.env.get("PORT") ?? "8000");
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const redirectTo = Deno.env.get("APP_REDIRECT_URL") ??
-    "io.supabase.carrousel://login-callback";
-
-  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
-    return error("La función no está configurada correctamente.", 500);
-  }
-
-  const autorizacion = req.headers.get("Authorization");
-  if (!autorizacion) {
-    return error("Falta la sesión del administrador.", 401);
-  }
-
-  const clienteSolicitante = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: autorizacion } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data: authData, error: authError } = await clienteSolicitante.auth
-    .getUser();
-  if (authError || !authData.user) {
-    return error("Sesión inválida o expirada.", 401);
-  }
-
-  let cuerpo: InvitarBody;
-  try {
-    cuerpo = await req.json();
-  } catch {
-    return error("El cuerpo debe ser JSON válido.");
-  }
-
-  const email = typeof cuerpo.email === "string"
-    ? cuerpo.email.trim().toLowerCase()
-    : "";
-  const nombre = typeof cuerpo.nombre_completo === "string"
-    ? cuerpo.nombre_completo.trim()
-    : "";
-  const rol = typeof cuerpo.rol === "string" ? cuerpo.rol : "";
-  const centroId = typeof cuerpo.centro_costo_id === "string"
-    ? cuerpo.centro_costo_id
-    : "";
-
-  if (!EMAIL.test(email) || email.length > 320) {
-    return error("Escribe un correo electrónico válido.");
-  }
-  if (nombre.length < 2 || nombre.length > 120) {
-    return error("El nombre completo debe tener entre 2 y 120 caracteres.");
-  }
-  if (rol !== "empleado" && rol !== "admin") {
-    return error("El rol debe ser empleado o admin.");
-  }
-  if (!UUID.test(centroId)) {
-    return error("El centro de costo no es válido.");
-  }
-
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data: perfil, error: perfilError } = await admin
-    .from("perfiles")
-    .select("empresa_id, centro_costo_id, rol, activo")
-    .eq("id", authData.user.id)
-    .maybeSingle<PerfilSolicitante>();
-
-  if (perfilError) {
-    return error("No se pudo verificar el perfil del solicitante.", 500);
-  }
-  if (!perfil || perfil.rol !== "admin" || !perfil.activo) {
-    return error("Solo un administrador activo puede invitar usuarios.", 403);
-  }
-
-  const { data: centro, error: centroError } = await admin
-    .from("centros_costo")
-    .select("id, empresa_id, ruta")
-    .eq("id", centroId)
-    .maybeSingle<CentroDestino>();
-
-  if (centroError) {
-    return error("No se pudo verificar el centro de costo.", 500);
-  }
-  if (!centro || centro.empresa_id !== perfil.empresa_id) {
-    return error("El centro de costo no pertenece a tu empresa.", 400);
-  }
-
-  const ruta = centro.ruta ?? [];
-  const enAlcance = centro.id === perfil.centro_costo_id ||
-    ruta.includes(perfil.centro_costo_id);
-  if (!enAlcance) {
-    return error(
-      "Solo puedes invitar usuarios a centros dentro de tu subárbol.",
-      403,
-    );
-  }
-
-  const { data: invitacion, error: invitacionError } = await admin.auth.admin
-    .inviteUserByEmail(email, { redirectTo });
-
-  if (invitacionError || !invitacion.user) {
-    const texto = (invitacionError?.message ?? "").toLowerCase();
-    if (
-      texto.includes("already been registered") ||
-      texto.includes("already exists")
-    ) {
-      return error("Ese correo ya tiene una cuenta en Carrousel.", 409);
+Deno.serve(
+  { port: Number.isFinite(PORT) ? PORT : 8000 },
+  async (req: Request) => {
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: CORS });
     }
-    return error(
-      "No se pudo enviar la invitación. Revisa la configuración de correo.",
-      502,
-    );
-  }
+    if (req.method !== "POST") {
+      return error("Método no permitido.", 405);
+    }
 
-  const { error: claimsError } = await admin.auth.admin.updateUserById(
-    invitacion.user.id,
-    {
-      app_metadata: {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const redirectTo = Deno.env.get("APP_REDIRECT_URL") ??
+      "io.supabase.carrousel://login-callback";
+
+    if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+      return error("La función no está configurada correctamente.", 500);
+    }
+
+    const autorizacion = req.headers.get("Authorization");
+    if (!autorizacion) {
+      return error("Falta la sesión del administrador.", 401);
+    }
+
+    const clienteSolicitante = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: autorizacion } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: authData, error: authError } = await clienteSolicitante.auth
+      .getUser();
+    if (authError || !authData.user) {
+      return error("Sesión inválida o expirada.", 401);
+    }
+
+    let cuerpo: InvitarBody;
+    try {
+      cuerpo = await req.json();
+    } catch {
+      return error("El cuerpo debe ser JSON válido.");
+    }
+
+    const email = typeof cuerpo.email === "string"
+      ? cuerpo.email.trim().toLowerCase()
+      : "";
+    const nombre = typeof cuerpo.nombre_completo === "string"
+      ? cuerpo.nombre_completo.trim()
+      : "";
+    const rol = typeof cuerpo.rol === "string" ? cuerpo.rol : "";
+    const centroId = typeof cuerpo.centro_costo_id === "string"
+      ? cuerpo.centro_costo_id
+      : "";
+
+    if (!EMAIL.test(email) || email.length > 320) {
+      return error("Escribe un correo electrónico válido.");
+    }
+    if (nombre.length < 2 || nombre.length > 120) {
+      return error("El nombre completo debe tener entre 2 y 120 caracteres.");
+    }
+    if (rol !== "empleado" && rol !== "admin") {
+      return error("El rol debe ser empleado o admin.");
+    }
+    if (!UUID.test(centroId)) {
+      return error("El centro de costo no es válido.");
+    }
+
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: perfiles, error: perfilError } = await admin
+      .from("perfiles")
+      .select("empresa_id, centro_costo_id, rol, activo")
+      .eq("id", authData.user.id)
+      .limit(1);
+
+    if (perfilError) {
+      return error("No se pudo verificar el perfil del solicitante.", 500);
+    }
+    const perfil = (perfiles?.[0] ?? null) as PerfilSolicitante | null;
+    if (!perfil || perfil.rol !== "admin" || !perfil.activo) {
+      return error("Solo un administrador activo puede invitar usuarios.", 403);
+    }
+
+    const { data: centros, error: centroError } = await admin
+      .from("centros_costo")
+      .select("id, empresa_id, ruta")
+      .eq("id", centroId)
+      .limit(1);
+
+    if (centroError) {
+      return error("No se pudo verificar el centro de costo.", 500);
+    }
+    const centro = (centros?.[0] ?? null) as CentroDestino | null;
+    if (!centro || centro.empresa_id !== perfil.empresa_id) {
+      return error("El centro de costo no pertenece a tu empresa.", 400);
+    }
+
+    const ruta = centro.ruta ?? [];
+    const enAlcance = centro.id === perfil.centro_costo_id ||
+      ruta.includes(perfil.centro_costo_id);
+    if (!enAlcance) {
+      return error(
+        "Solo puedes invitar usuarios a centros dentro de tu subárbol.",
+        403,
+      );
+    }
+
+    const { data: invitacion, error: invitacionError } = await admin.auth.admin
+      .inviteUserByEmail(email, { redirectTo });
+
+    if (invitacionError || !invitacion.user) {
+      const texto = (invitacionError?.message ?? "").toLowerCase();
+      if (
+        texto.includes("already been registered") ||
+        texto.includes("already exists")
+      ) {
+        return error("Ese correo ya tiene una cuenta en Carrousel.", 409);
+      }
+      return error(
+        "No se pudo enviar la invitación. Revisa la configuración de correo.",
+        502,
+      );
+    }
+
+    const { error: claimsError } = await admin.auth.admin.updateUserById(
+      invitacion.user.id,
+      {
+        app_metadata: {
+          empresa_id: perfil.empresa_id,
+          centro_costo_id: centro.id,
+          rol,
+        },
+        user_metadata: { nombre_completo: nombre },
+      },
+    );
+
+    if (claimsError) {
+      // Rollback: no se deja un usuario de Auth sin perfil ni alcance.
+      await admin.auth.admin.deleteUser(invitacion.user.id);
+      return error(
+        "No se pudo asignar el alcance al usuario. La invitación se revirtió.",
+        500,
+      );
+    }
+
+    return json(
+      {
+        id: invitacion.user.id,
+        email,
+        rol,
         empresa_id: perfil.empresa_id,
         centro_costo_id: centro.id,
-        rol,
+        nombre_completo: nombre,
+        invitacion_enviada: true,
       },
-      user_metadata: { nombre_completo: nombre },
-    },
-  );
-
-  if (claimsError) {
-    // Rollback: no se deja un usuario de Auth sin perfil ni alcance.
-    await admin.auth.admin.deleteUser(invitacion.user.id);
-    return error(
-      "No se pudo asignar el alcance al usuario. La invitación se revirtió.",
-      500,
+      201,
     );
-  }
-
-  return json(
-    {
-      id: invitacion.user.id,
-      email,
-      rol,
-      empresa_id: perfil.empresa_id,
-      centro_costo_id: centro.id,
-      nombre_completo: nombre,
-      invitacion_enviada: true,
-    },
-    201,
-  );
-});
+  },
+);

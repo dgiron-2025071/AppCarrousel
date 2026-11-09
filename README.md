@@ -11,7 +11,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
 | Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0006` implementadas y validadas |
-| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada y verificada con `deno check` |
+| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 21 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
 | Distribución Android | APK directo | `flutter build apk --debug` validado |
@@ -48,6 +48,7 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **144 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
+- [x] **21 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
 - [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
 - [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
 
@@ -69,7 +70,7 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - comprueba que el centro destino esté en su subárbol (`ruta`) y en su empresa;
 - invita por correo, escribe `app_metadata` con `service_role` y revierte el usuario si falla la asignación.
 
-El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check`; su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
+El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 21 pruebas de integración contra un Supabase falso local (sesión, perfil, jerarquía, validaciones, invitación, claims y rollback); su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
 
 ## Aplicación móvil
 
@@ -137,7 +138,10 @@ La Edge Function se verifica sin desplegarla:
 npx -y deno check supabase/functions/invitar-usuario/index.ts
 npx -y deno lint supabase/functions/invitar-usuario/index.ts
 npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
+npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 ```
+
+Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgREST y ejecutan la función en un puerto libre. Cubren CORS, sesión, perfil, validaciones del cuerpo, empresa y subárbol, invitación de empleado/admin, correo duplicado, error de envío y rollback al fallar `app_metadata`. Resultado actual: **21 pruebas OK, 0 fallos**.
 
 ## Historial de cambios
 
@@ -160,6 +164,7 @@ npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
 | 2026-11-06 | Migración `0005` — jornadas y geocerca | `dgiron-2025071` | [#17](https://github.com/dgiron-2025071/AppCarrousel/pull/17) | Mergeado a `develop` | 144 pruebas OK |
 | 2026-11-06 | Migración `0006` — horas extras y aprobación | `dgiron-2025071` | [#18](https://github.com/dgiron-2025071/AppCarrousel/pull/18) | Mergeado a `develop` | 144 pruebas OK |
 | 2026-11-06 | App Flutter conectada a Supabase + Edge Function de invitación | `dgiron-2025071` | [#19](https://github.com/dgiron-2025071/AppCarrousel/pull/19) | Mergeado a `develop` | `flutter analyze`, APK debug, `deno check` |
+| 2026-11-09 | Pruebas de integración de la Edge Function de invitación | `dgiron-2025071` | [#21](https://github.com/dgiron-2025071/AppCarrousel/pull/21) | Mergeado a `develop` | 21 pruebas Deno OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -202,6 +207,9 @@ File > Open... > C:\AppCarrousel\apps\mobile
 ```bash
 # Validación real de las migraciones (PostgreSQL portátil, sin Docker)
 pnpm --dir tools/db-validation test
+
+# Pruebas de integración de la Edge Function (Supabase falso, sin credenciales)
+npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 # Backend con Supabase local (cuando Docker esté disponible)
 supabase start
