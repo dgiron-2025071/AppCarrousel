@@ -1,87 +1,178 @@
-# AppCarrousel
+# Carrousel
 
-Núcleo técnico de la aplicación corporativa de **Carrousel**. La primera implementación se enfoca en bodegas, pero la arquitectura se diseña desde el día uno para escalar a toda la empresa sin refactorizar el core.
+Aplicación corporativa de **Carrousel** para registrar jornadas, validar el marcaje con GPS y gestionar solicitudes de horas extras con aprobación en tiempo real.
+
+El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos hardcodeados: la jerarquía de centros de costo y parques es dinámica y el aislamiento entre empresas vive en la base de datos.
 
 ## Stack tecnológico
 
 | Capa | Tecnología | Estado |
 |---|---|---|
-| Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Clean Architecture, Riverpod/Bloc | Entorno instalado; implementación pendiente |
+| Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
-| Backend y base de datos | Supabase / PostgreSQL, RLS, Realtime | En desarrollo (MT-01) |
-| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | Convención definida; scaffold pendiente |
+| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0006` implementadas y validadas |
+| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada y verificada con `deno check` |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
-| Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo del dispositivo | Pendiente (fase móvil) |
-| Distribución Android | APK directo | Pendiente (fase móvil) |
+| Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
+| Distribución Android | APK directo | `flutter build apk --debug` validado |
 
 ## Principios de arquitectura
 
-- **Backend primero:** el esquema, la integridad referencial y las políticas RLS se definen antes de conectar el cliente.
-- **Multiempresa lógico:** la tabla `empresas` existe desde el inicio; los datos de centros de costo y parques se inyectan después, sin hardcodearlos.
-- **Jerarquía dinámica:** centros de costo auto-referenciados y parques asociados a un centro, con integridad *cross-tenant* a nivel de base de datos.
-- **Seguridad en el servidor:** el rol y el alcance viven en `app_metadata` del JWT. Solo `service_role` puede escribirlos; el cliente nunca decide su rol.
-- **RLS como última línea:** `anon` y `authenticated` no reciben privilegios por defecto; cada tabla otorga permisos explícitos.
-- **Antifraude geográfico:** en la fase móvil se usarán coordenadas del GPS nativo y mapas sin interacción (`InteractiveFlags.none`).
+- **Backend primero:** esquema, integridad referencial y RLS antes de conectar el cliente.
+- **Multiempresa lógico:** `empresas` es la raíz; centros de costo y parques se crean por administración, sin hardcodear datos.
+- **Jerarquía dinámica:** centros auto-referenciados con `ruta uuid[]`, FK compuesta por empresa y triggers anti-ciclos.
+- **Seguridad en el servidor:** rol, `empresa_id` y `centro_costo_id` viven en `app_metadata` del JWT. Solo `service_role` los escribe; el cliente nunca decide su rol.
+- **RLS como última línea:** `anon` y `authenticated` no tienen privilegios por defecto; cada tabla otorga permisos explícitos por columna.
+- **Antifraude geográfico:** el GPS nativo envía coordenadas y precisión; PostgreSQL valida la geocerca y guarda `entrada_dentro_geocerca` / `salida_dentro_geocerca`. El mapa es informativo y no permite gestos.
+
+## Roles
+
+Solo existen dos roles de negocio, definidos por el enum cerrado `public.rol_usuario`:
+
+| Rol | Alcance |
+|---|---|
+| `empleado` | Marca su jornada, consulta sus horas y crea solicitudes de horas extras. |
+| `admin` | Todo lo anterior y, además, ve las solicitudes de los especialistas de su subárbol para aprobarlas o rechazarlas. |
+
+No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perfiles`; el rol y el alcance los materializa un trigger desde `app_metadata`, escrito únicamente con `service_role`.
 
 ## Estado del backend — MT-01
 
-Micro-tarea: núcleo organizacional dinámico, identidad/roles y RLS base.
+- [x] **0001** Bootstrap: extensiones, schema `private`, enum `rol_usuario`, helpers JWT, auditoría y endurecimiento de grants.
+- [x] **0002** `empresas` + jerarquía dinámica de `centros_costo` + RLS por subárbol.
+- [x] **0003** `parques` + geocerca + RLS por alcance.
+- [x] **0004** `perfiles` + sincronización desde `app_metadata` + RLS.
+- [x] **0005** `jornadas` + distancia haversine + validación de geocerca + Realtime.
+- [x] **0006** `solicitudes_horas_extras` + revisión administrativa por trigger + Realtime.
+- [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
+- [x] **144 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
+- [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
+- [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
+- [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
 
-- [x] **0001** Bootstrap: extensiones, schema `private`, enum `rol_usuario`, helpers JWT, trigger de auditoría y endurecimiento de grants.
-- [x] **0002** `empresas` + jerarquía de `centros_costo` + RLS.
-- [x] **0003** `parques` + RLS.
-- [x] **0004** `perfiles` + roles + RLS.
-- [ ] **0005** Pruebas pgTAP de aislamiento (recomendado).
-- [ ] Validación ejecutada con `supabase db reset` y JWT reales de empleado/admin.
+> El arnés levanta un PostgreSQL real y aplica las migraciones, pero emula los claims con `request.jwt.claims` y el esquema `auth`. La validación con JWT firmados por Supabase queda pendiente por no contar con Docker/WSL2 en el entorno.
 
-> Estado real: el esquema base (`0001`–`0004`) está completo en código, pero **ninguna migración se ha ejecutado todavía** contra PostgreSQL/Supabase porque el entorno no tiene Docker/WSL2. Toda la validación es estática hasta que exista un entorno de base de datos.
-
-### Aprovisionamiento de roles
-
-El rol no se elige en el cliente. El flujo previsto es:
+### Flujo de aprovisionamiento
 
 1. Un administrador autorizado genera una invitación con rol (`empleado` o `admin`) y alcance (`empresa_id`, `centro_costo_id`).
 2. Una Edge Function con `service_role` crea el usuario en Supabase Auth y escribe esos valores en `app_metadata`.
-3. El trigger de `perfiles` materializa el perfil al crear el usuario o al actualizar `app_metadata`.
+3. El trigger `on_auth_user_sync_perfil` materializa `public.perfiles` al crear el usuario o al cambiar `app_metadata`.
 4. RLS y los grants por columna impiden que el usuario modifique su rol o su alcance.
 
-## Estado del móvil (preview)
+### Invitación de usuarios
 
-- [x] Scaffold Flutter en `apps/mobile` (Android).
-- [x] Pantalla de botones con selector Empleado/Admin y acciones simuladas.
-- [x] `flutter analyze` y `flutter build apk --debug` validados.
-- [ ] Conexión a Supabase Auth/Realtime.
-- [ ] Gestión de estado con Riverpod/Bloc.
-- [ ] `flutter_map` + GPS/geocerca.
+La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_completo`, `rol` y `centro_costo_id`, y:
+
+- exige una sesión válida y un perfil **activo** con rol `admin`;
+- toma `empresa_id` del perfil del administrador, nunca del cuerpo;
+- comprueba que el centro destino esté en su subárbol (`ruta`) y en su empresa;
+- invita por correo, escribe `app_metadata` con `service_role` y revierte el usuario si falla la asignación.
+
+El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check`; su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
+
+## Aplicación móvil
+
+La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni sesiones de ejemplo**. Toda cuenta debe existir previamente en Supabase Auth.
+
+### Funcionalidad implementada
+
+- **Login** con correo/contraseña, recuperación de contraseña y **Continuar con Google** (OAuth con PKCE y deep link).
+- **Dashboard del empleado** con horas de hoy, semana y mes, jornada en curso y últimos marcajes; se actualiza con Realtime.
+- **Marcaje de entrada/salida** con `flutter_map` + OpenStreetMap, GPS nativo y selección del parque. El mapa usa `InteractiveFlag.none`; la geocerca se valida en PostgreSQL.
+- **Horas extras:** rango de horas, parque/centro de costo donde apoyó y justificación. La solicitud nace `pendiente`.
+- **Historial propio** de solicitudes con estado, comentario del administrador y actualización en tiempo real.
+- **Aprobaciones del admin:** solicitudes del subárbol con nombre del especialista, justificación, rango y comentario opcional al aprobar o rechazar. El resultado le llega al especialista por Realtime.
+- **Perfil:** datos de la cuenta, cambio de contraseña y cierre de sesión.
+
+### Estructura
+
+```text
+apps/mobile/lib/
+├── core/            # configuración, tema, errores, utilidades y widgets
+├── data/            # modelos y repositorios Supabase
+├── providers/       # providers de Riverpod, streams Realtime y catálogos
+├── features/        # auth, shell, dashboard, jornada, solicitudes, admin, perfil
+└── main.dart        # Supabase.initialize + ProviderScope
+```
+
+## Configuración de la app
+
+Las credenciales se inyectan en tiempo de compilación; nunca se versionan:
+
+```bash
+cd apps/mobile
+flutter run \
+  --dart-define=SUPABASE_URL=https://tu-proyecto.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=tu-clave-publica
+```
+
+Si faltan las credenciales, la app muestra una pantalla de configuración con el comando exacto y no intenta conectarse.
+
+### Supabase Auth
+
+1. Habilita el proveedor **Google** en `Authentication > Providers`.
+2. Autoriza el redirect `io.supabase.carrousel://login-callback` en `Authentication > URL Configuration`.
+3. Para recuperación de contraseña, el correo debe regresar a ese mismo deep link. El intent-filter ya está declarado en `apps/mobile/android/app/src/main/AndroidManifest.xml`.
+
+### Android
+
+- Permisos declarados: `INTERNET`, `ACCESS_FINE_LOCATION` y `ACCESS_COARSE_LOCATION` (solo ubicación en primer plano).
+- Label visible: **Carrousel**.
+- Application ID: `com.empresacarrousel.carrousel_app`.
+
+## Validación de la base de datos
+
+El arnés vive en `tools/db-validation` y usa `embedded-postgres` para ejecutar PostgreSQL 17.9 portátil sin Docker:
+
+```bash
+pnpm --dir tools/db-validation test
+```
+
+Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Resultado actual: **144 pruebas OK, 0 fallos**.
+
+La Edge Function se verifica sin desplegarla:
+
+```bash
+npx -y deno check supabase/functions/invitar-usuario/index.ts
+npx -y deno lint supabase/functions/invitar-usuario/index.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
+```
 
 ## Historial de cambios
 
 | Fecha | Entrega | Rama | PR | Estado | Validación |
 |---|---|---|---|---|---|
-| 2026-11-05 | Migración `0001` — bootstrap de extensiones y helpers de seguridad | `dgiron-2025071` | [#2](https://github.com/dgiron-2025071/AppCarrousel/pull/2) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | Migración `0001` — bootstrap de extensiones y helpers de seguridad | `dgiron-2025071` | [#2](https://github.com/dgiron-2025071/AppCarrousel/pull/2) | Mergeado a `develop` | Revisión estática |
 | 2026-11-05 | README con stack, estado y bitácora | `dgiron-2025071` | [#3](https://github.com/dgiron-2025071/AppCarrousel/pull/3) | Mergeado a `develop` | — |
-| 2026-11-05 | Scaffold Flutter en `apps/mobile` | `dgiron-2025071` | [#4](https://github.com/dgiron-2025071/AppCarrousel/pull/4) | Mergeado a `develop` | `flutter analyze` OK |
-| 2026-11-05 | Pantalla de botones (preview) | `dgiron-2025071` | [#5](https://github.com/dgiron-2025071/AppCarrousel/pull/5) | Mergeado a `develop` | `flutter analyze` + `flutter build apk --debug` OK |
+| 2026-11-05 | Scaffold Flutter en `apps/mobile` | `dgiron-2025071` | [#4](https://github.com/dgiron-2025071/AppCarrousel/pull/4) | Mergeado a `develop` | `flutter analyze` |
+| 2026-11-05 | Pantalla de botones (preview) | `dgiron-2025071` | [#5](https://github.com/dgiron-2025071/AppCarrousel/pull/5) | Mergeado a `develop` | `flutter analyze` + APK debug |
 | 2026-11-05 | README: estado del móvil y entorno | `dgiron-2025071` | [#6](https://github.com/dgiron-2025071/AppCarrousel/pull/6) | Mergeado a `develop` | — |
-| 2026-11-05 | Migración `0002` — empresas y centros de costo | `dgiron-2025071` | [#7](https://github.com/dgiron-2025071/AppCarrousel/pull/7) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | Migración `0002` — empresas y centros de costo | `dgiron-2025071` | [#7](https://github.com/dgiron-2025071/AppCarrousel/pull/7) | Mergeado a `develop` | Revisión estática |
 | 2026-11-05 | README: registrar migración `0002` | `dgiron-2025071` | [#8](https://github.com/dgiron-2025071/AppCarrousel/pull/8) | Mergeado a `develop` | — |
-| 2026-11-05 | Migración `0003` — parques y geocerca | `dgiron-2025071` | [#9](https://github.com/dgiron-2025071/AppCarrousel/pull/9) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | Migración `0003` — parques y geocerca | `dgiron-2025071` | [#9](https://github.com/dgiron-2025071/AppCarrousel/pull/9) | Mergeado a `develop` | Revisión estática |
 | 2026-11-05 | README: registrar migración `0003` | `dgiron-2025071` | [#10](https://github.com/dgiron-2025071/AppCarrousel/pull/10) | Mergeado a `develop` | — |
-| 2026-11-05 | Migración `0004` — perfiles y roles | `dgiron-2025071` | [#11](https://github.com/dgiron-2025071/AppCarrousel/pull/11) | Mergeado a `develop` | Revisión estática; `db reset` pendiente |
+| 2026-11-05 | Migración `0004` — perfiles y roles | `dgiron-2025071` | [#11](https://github.com/dgiron-2025071/AppCarrousel/pull/11) | Mergeado a `develop` | Revisión estática |
 | 2026-11-05 | README: registrar migración `0004` y cierre del esquema | `dgiron-2025071` | [#12](https://github.com/dgiron-2025071/AppCarrousel/pull/12) | Mergeado a `develop` | — |
+| 2026-11-05 | README: historial y deuda de validación | `dgiron-2025071` | [#13](https://github.com/dgiron-2025071/AppCarrousel/pull/13) | Mergeado a `develop` | — |
+| 2026-11-06 | Roles `empleado`/`admin` y correcciones de jerarquía | `dgiron-2025071` | [#15](https://github.com/dgiron-2025071/AppCarrousel/pull/15) | Mergeado a `develop` | Revisión estática |
+| 2026-11-06 | Arnés de validación con PostgreSQL portátil | `dgiron-2025071` | [#16](https://github.com/dgiron-2025071/AppCarrousel/pull/16) | Mergeado a `develop` | 144 pruebas |
+| 2026-11-06 | Migración `0005` — jornadas y geocerca | `dgiron-2025071` | [#17](https://github.com/dgiron-2025071/AppCarrousel/pull/17) | Mergeado a `develop` | 144 pruebas OK |
+| 2026-11-06 | Migración `0006` — horas extras y aprobación | `dgiron-2025071` | [#18](https://github.com/dgiron-2025071/AppCarrousel/pull/18) | Mergeado a `develop` | 144 pruebas OK |
+| 2026-11-06 | App Flutter conectada a Supabase + Edge Function de invitación | `dgiron-2025071` | [#19](https://github.com/dgiron-2025071/AppCarrousel/pull/19) | Mergeado a `develop` | `flutter analyze`, APK debug, `deno check` |
 
-> Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2, que fue mergeado.
+> Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
 ## Flujo Git
 
 1. Rama de trabajo: `dgiron-2025071`.
-2. Un commit atómico por archivo o entregable.
+2. Commits agrupados por entregable.
 3. Push a `origin/dgiron-2025071`.
 4. Pull Request hacia `develop`.
 5. Merge validado a `develop`.
 6. Al cerrar la micro-tarea: Pull Request de `develop` hacia `main`.
 
-No se hace push directo a `main`. Cada merge a `develop` debe dejar la rama de trabajo sincronizada antes del siguiente entregable.
+No se hace push directo a `main`. Cada merge a `develop` deja la rama de trabajo sincronizada antes del siguiente entregable.
 
 ## Entorno local
 
@@ -91,7 +182,7 @@ No se hace push directo a `main`. Cada merge a `develop` debe dejar la rama de t
 | Dart | 3.13.7 |
 | Android Studio | Instalado |
 | Android SDK | 36 (platform 36 rev.2) |
-| Android NDK | 28.2.13676358 (canal canary) |
+| Android NDK | 28.2.13676358 |
 | Emulador | `Medium_Phone_API_37.0` |
 | Node.js | 22.22.3 |
 | pnpm | 12.16.1 |
@@ -109,7 +200,10 @@ File > Open... > C:\AppCarrousel\apps\mobile
 ### Comandos
 
 ```bash
-# Backend (cuando Docker esté disponible)
+# Validación real de las migraciones (PostgreSQL portátil, sin Docker)
+pnpm --dir tools/db-validation test
+
+# Backend con Supabase local (cuando Docker esté disponible)
 supabase start
 supabase db reset
 
@@ -118,20 +212,21 @@ cd apps/mobile
 flutter pub get
 flutter analyze
 flutter build apk --debug
-flutter run
+flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 ```
 
 ## Siguientes pasos
 
-1. Validar las migraciones `0001`–`0004` en un entorno PostgreSQL/Supabase real.
-2. Entregar `0005`: pruebas pgTAP de aislamiento y de no autoelevación.
-3. Implementar el flujo de invitación en TypeScript/Deno con `pnpm`.
-4. Conectar el preview Flutter a Supabase Auth y añadir Riverpod/Bloc.
-5. Integrar `flutter_map` con OpenStreetMap y GPS/geocerca.
+1. Desplegar `invitar-usuario` en el proyecto Supabase real y probar el flujo completo de invitación con correo.
+2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible.
+3. Añadir la pantalla de invitación para administradores en la app (consumo de la Edge Function).
+4. Añadir pruebas de widget/unitarias de la app Flutter.
+5. Cerrar MT-01 con el merge de `develop` a `main`.
 
 ## Seguridad
 
 - La clave `service_role` nunca se incluye en la app móvil; solo se usa en Edge Functions o administración.
-- `user_metadata` no se usa para autorización; los claims de rol y alcance viven en `app_metadata`.
+- `user_metadata` no se usa para autorización; el rol y el alcance viven en `app_metadata`.
 - Las migraciones se versionan; no se hacen cambios manuales de esquema en el dashboard.
 - Las políticas RLS y los grants se revisan antes de cada merge.
+- La app no incluye usuarios, contraseñas ni sesiones de ejemplo.
