@@ -174,6 +174,7 @@ const S = {
   grandPendiente: 'f1000000-0000-4000-8000-000000000003',
   bPendiente: 'f1000000-0000-4000-8000-000000000004',
   adminPropia: 'f1000000-0000-4000-8000-000000000005',
+  aCancelable: 'f1000000-0000-4000-8000-000000000006',
 };
 
 group('Datos de prueba');
@@ -258,13 +259,16 @@ await q(`
     ($10, $11, $12, $13, now() - interval '1 day', now() - interval '1 day' + interval '3 hours',
      'Solicitud de la empresa B', 'pendiente', null, null, null),
     ($14, $2, $15, $16, now() - interval '1 day', now() - interval '1 day' + interval '3 hours',
-     'Solicitud propia del admin', 'pendiente', null, null, null);
+     'Solicitud propia del admin', 'pendiente', null, null, null),
+    ($17, $2, $3, $4, now() - interval '1 day', now() - interval '1 day' + interval '2 hours',
+     'Solicitud enviada por error que el especialista retirará', 'pendiente', null, null, null);
 `, [
   S.aPendiente, A.empresa, U.empA, A.grand,
   S.aAprobada, U.gerRoot,
   S.grandPendiente, U.empGrand, A.grand,
   S.bPendiente, B.empresa, U.empB, B.root,
   S.adminPropia, U.gerA, A.child,
+  S.aCancelable,
 ]);
 
 console.log('  Datos insertados.');
@@ -292,12 +296,12 @@ eq('RLS habilitada en las 6 tablas', await scalar(`
 eq('extensiones citext y pgcrypto', await scalar(`
   select count(*)::int from pg_extension where extname in ('citext','pgcrypto')
 `), 2);
-eq('políticas RLS creadas (2+4+4+1+3+3)', await scalar(`
+eq('políticas RLS creadas (2+4+4+1+3+4)', await scalar(`
   select count(*)::int from pg_policies where schemaname = 'public'
-`), 17);
+`), 18);
 eq('enum de estado de solicitud', await scalar(`
   select enum_range(null::public.estado_solicitud)::text
-`), '{pendiente,aprobada,rechazada}');
+`), '{pendiente,aprobada,rechazada,cancelada}');
 
 // -----------------------------------------------------------------------------
 // Jerarquía
@@ -852,7 +856,7 @@ await expectRoleError('no escribe comentario del admin al crear', 'authenticated
 eq('el especialista ve solo sus solicitudes',
   await withRole('authenticated', empAClaims, async () =>
     (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
-  [S.aPendiente, S.aAprobada].sort());
+  [S.aPendiente, S.aAprobada, S.aCancelable].sort());
 eq('el especialista nieto ve solo las suyas',
   await withRole('authenticated', claims(U.empGrand, A.empresa, A.grand, 'empleado'), async () =>
     (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
@@ -860,11 +864,11 @@ eq('el especialista nieto ve solo las suyas',
 eq('el admin ve las solicitudes de su subárbol',
   await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
     (await q('select id from public.solicitudes_horas_extras order by id')).rows.map((r) => r.id)),
-  [S.aPendiente, S.aAprobada, S.grandPendiente, S.adminPropia].sort());
+  [S.aPendiente, S.aAprobada, S.grandPendiente, S.adminPropia, S.aCancelable].sort());
 eq('el admin raíz ve todas las solicitudes de su empresa',
   await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
     (await q('select count(*)::int from public.solicitudes_horas_extras')).rows[0].count),
-  4);
+  5);
 eq('el admin A no ve solicitudes de B',
   await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
     (await q('select count(*)::int from public.solicitudes_horas_extras where id = $1', [S.bPendiente])).rows[0].count),
@@ -910,12 +914,10 @@ eq('el admin no revisa solicitudes fuera de su subárbol',
     `, [S.bPendiente])).rowCount),
   0);
 
-eq('el admin no revisa su propia solicitud',
-  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
-    (await q(`
-      update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
-    `, [S.adminPropia])).rowCount),
-  0);
+await expectRoleError('el admin no revisa su propia solicitud', 'authenticated',
+  claims(U.gerA, A.empresa, A.child, 'admin'),
+  `update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+  [S.adminPropia], '42501');
 
 eq('no se revisa dos veces una solicitud',
   await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
@@ -924,12 +926,10 @@ eq('no se revisa dos veces una solicitud',
     `, [S.aAprobada])).rowCount),
   0);
 
-eq('el especialista no cambia el estado de su solicitud',
-  await withRole('authenticated', empAClaims, async () =>
-    (await q(`
-      update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
-    `, [S.aPendiente])).rowCount),
-  0);
+await expectRoleError('el especialista no cambia el estado de su solicitud', 'authenticated',
+  empAClaims,
+  `update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+  [S.aPendiente], '42501');
 
 await expectRoleError('el admin no cambia el especialista', 'authenticated',
   claims(U.gerA, A.empresa, A.child, 'admin'),
@@ -952,6 +952,64 @@ await expectRoleError('no se pueden borrar solicitudes', 'authenticated', empACl
 await expectError('no se reabre una solicitud revisada', `
   update public.solicitudes_horas_extras set estado = 'pendiente' where id = $1
 `, [S.aAprobada], '23514');
+
+await expectRoleError('el especialista no aprueba su solicitud pendiente', 'authenticated',
+  empAClaims,
+  `update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+  [S.aCancelable], '42501');
+
+eq('el especialista no retira una solicitud ajena',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'cancelada' where id = $1
+    `, [S.adminPropia])).rowCount),
+  0);
+
+eq('el especialista no retira una solicitud ya aprobada',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'cancelada' where id = $1
+    `, [S.aAprobada])).rowCount),
+  0);
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const retiro = await q(`
+    update public.solicitudes_horas_extras
+    set estado = 'cancelada', comentario_admin = 'comentario no permitido'
+    where id = $1
+  `, [S.aCancelable]);
+  const fila = (await q(`
+    select estado, comentario_admin, revisado_por, revisado_en is not null as cerrada
+    from public.solicitudes_horas_extras where id = $1
+  `, [S.aCancelable])).rows[0];
+  eq('el especialista retira su solicitud pendiente',
+    [retiro.rowCount, fila.estado, fila.comentario_admin, fila.revisado_por, fila.cerrada],
+    [1, 'cancelada', null, null, true]);
+
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+  eq('el admin no revisa una solicitud cancelada',
+    (await q(`
+      update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1
+    `, [S.aCancelable])).rowCount,
+    0);
+
+  await q('reset role');
+  try {
+    await q(`
+      update public.solicitudes_horas_extras set estado = 'pendiente' where id = $1
+    `, [S.aCancelable]);
+    ok('una solicitud cancelada no se reabre', false, 'no lanzó error');
+  } catch (error) {
+    ok('una solicitud cancelada no se reabre', error.code === '23514',
+      `code=${error.code}, msg=${error.message}`);
+  }
+} finally {
+  await q('rollback');
+}
 
 // -----------------------------------------------------------------------------
 // Tiempo real

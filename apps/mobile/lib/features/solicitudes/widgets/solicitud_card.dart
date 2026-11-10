@@ -27,6 +27,11 @@ class EstadoChip extends StatelessWidget {
           colores.onErrorContainer,
           Icons.cancel_rounded,
         ),
+      EstadoSolicitud.cancelada => (
+          colores.surfaceContainerHighest,
+          colores.onSurfaceVariant,
+          Icons.undo_rounded,
+        ),
     };
 
     return Container(
@@ -219,7 +224,9 @@ class SolicitudCard extends StatelessWidget {
               solicitud.revisadoEn != null) ...[
             const SizedBox(height: 10),
             Text(
-              'Revisada ${formatearFechaHora(solicitud.revisadoEn!)}',
+              solicitud.estado == EstadoSolicitud.cancelada
+                  ? 'Retirada ${formatearFechaHora(solicitud.revisadoEn!)}'
+                  : 'Revisada ${formatearFechaHora(solicitud.revisadoEn!)}',
               style: TextStyle(
                 fontSize: 11,
                 color: colores.onSurfaceVariant,

@@ -1,7 +1,8 @@
 enum EstadoSolicitud {
   pendiente('Pendiente'),
   aprobada('Aprobada'),
-  rechazada('Rechazada');
+  rechazada('Rechazada'),
+  cancelada('Cancelada');
 
   const EstadoSolicitud(this.etiqueta);
 
