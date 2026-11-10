@@ -27,7 +27,8 @@ class SolicitudRepository {
     required EstadoSolicitud decision,
     String? comentario,
   }) async {
-    if (decision == EstadoSolicitud.pendiente) {
+    if (decision != EstadoSolicitud.aprobada &&
+        decision != EstadoSolicitud.rechazada) {
       throw const AppException('La decisión debe ser aprobar o rechazar.');
     }
     final texto = comentario?.trim() ?? '';
@@ -42,6 +43,22 @@ class SolicitudRepository {
     if (filas.isEmpty) {
       throw const AppException(
         'La solicitud ya no está pendiente o no tienes permiso para revisarla.',
+      );
+    }
+  }
+
+  /// Retira una solicitud propia mientras siga pendiente. La base de datos
+  /// conserva el historial y rechaza la operación si ya fue revisada.
+  Future<void> cancelar({required String solicitudId}) async {
+    final filas = await _client
+        .from('solicitudes_horas_extras')
+        .update({'estado': EstadoSolicitud.cancelada.name})
+        .eq('id', solicitudId)
+        .eq('estado', EstadoSolicitud.pendiente.name)
+        .select('id');
+    if (filas.isEmpty) {
+      throw const AppException(
+        'La solicitud ya no está pendiente o no puedes retirarla.',
       );
     }
   }

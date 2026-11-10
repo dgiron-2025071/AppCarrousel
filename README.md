@@ -10,7 +10,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 |---|---|---|
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
-| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0007` implementadas y validadas |
+| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0011` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 21 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
@@ -45,8 +45,12 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **0005** `jornadas` + distancia haversine + validación de geocerca + Realtime.
 - [x] **0006** `solicitudes_horas_extras` + revisión administrativa por trigger + Realtime.
 - [x] **0007** Endurecimiento operativo: cierre de jornada con parque desactivado, marcaje solo en el subárbol, perfiles inactivos sin escritura y precisión GPS no negativa.
+- [x] **0008** Revocación inmediata de lectura del equipo para un admin inactivo, sin esperar a que expire su JWT.
+- [x] **0009** Cierre de jornadas olvidadas de más de 24 h, sin dejar al empleado atrapado con una jornada abierta.
+- [x] **0010** Estado `cancelada` para que el especialista retire una solicitud enviada por error.
+- [x] **0011** RLS y trigger de retiro: solo el dueño cancela una solicitud pendiente y el admin deja de poder revisarla.
 - [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
-- [x] **155 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] **166 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **21 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
@@ -83,7 +87,7 @@ La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni
 - **Dashboard del empleado** con horas de hoy, semana y mes, jornada en curso y últimos marcajes; se actualiza con Realtime.
 - **Marcaje de entrada/salida** con `flutter_map` + OpenStreetMap, GPS nativo y selección del parque. El mapa usa `InteractiveFlag.none`; la geocerca se valida en PostgreSQL.
 - **Horas extras:** rango de horas, parque/centro de costo donde apoyó y justificación. La solicitud nace `pendiente`.
-- **Historial propio** de solicitudes con estado, comentario del administrador y actualización en tiempo real.
+- **Historial propio** de solicitudes con estado, comentario del administrador y actualización en tiempo real. El especialista puede retirar una solicitud mientras siga pendiente; la cancelación conserva el historial.
 - **Aprobaciones del admin:** solicitudes del subárbol con nombre del especialista, justificación, rango y comentario opcional al aprobar o rechazar. El resultado le llega al especialista por Realtime.
 - **Perfil:** datos de la cuenta, cambio de contraseña y cierre de sesión.
 - **Invitación de usuarios (admin):** correo, nombre, rol y centro de costo dentro de su subárbol. La pantalla consume la Edge Function `invitar-usuario`, muestra los errores del servidor y calcula el subárbol con la jerarquía dinámica de `centros_costo` (sin datos hardcodeados).
@@ -132,7 +136,7 @@ El arnés vive en `tools/db-validation` y usa `embedded-postgres` para ejecutar 
 pnpm --dir tools/db-validation test
 ```
 
-Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. La migración `0007` añade pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos y la precisión GPS negativa. Resultado actual: **155 pruebas OK, 0 fallos**.
+Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0011` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h y el retiro de solicitudes propias. Resultado actual: **166 pruebas OK, 0 fallos**.
 
 La Edge Function se verifica sin desplegarla:
 
@@ -171,6 +175,9 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-09 | Pantalla de invitación de usuarios para administradores | `dgiron-2025071` | [#23](https://github.com/dgiron-2025071/AppCarrousel/pull/23) | Mergeado a `develop` | `flutter analyze`, 5 pruebas, APK debug |
 | 2026-11-09 | Pruebas de invitación y subárboles en Flutter | `dgiron-2025071` | [#25](https://github.com/dgiron-2025071/AppCarrousel/pull/25) | Mergeado a `develop` | 18 pruebas, `flutter analyze`, APK debug |
 | 2026-11-09 | Migración `0007` — endurecimiento operativo del backend | `dgiron-2025071` | [#26](https://github.com/dgiron-2025071/AppCarrousel/pull/26) | Mergeado a `develop` | 155 pruebas OK |
+| 2026-11-09 | Migración `0008` — revocación de lectura para admin inactivo | `dgiron-2025071` | [#28](https://github.com/dgiron-2025071/AppCarrousel/pull/28) | Mergeado a `develop` | 159 pruebas OK |
+| 2026-11-10 | Migración `0009` — cierre de jornadas olvidadas | `dgiron-2025071` | [#30](https://github.com/dgiron-2025071/AppCarrousel/pull/30) | Mergeado a `develop` | 160 pruebas OK |
+| 2026-11-10 | Migraciones `0010`/`0011` — retiro de solicitudes pendientes | `dgiron-2025071` | [#31](https://github.com/dgiron-2025071/AppCarrousel/pull/31) | Mergeado a `develop` | 166 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
