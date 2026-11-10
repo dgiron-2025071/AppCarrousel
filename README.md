@@ -177,7 +177,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-09 | Migración `0007` — endurecimiento operativo del backend | `dgiron-2025071` | [#26](https://github.com/dgiron-2025071/AppCarrousel/pull/26) | Mergeado a `develop` | 155 pruebas OK |
 | 2026-11-09 | Migración `0008` — revocación de lectura para admin inactivo | `dgiron-2025071` | [#28](https://github.com/dgiron-2025071/AppCarrousel/pull/28) | Mergeado a `develop` | 159 pruebas OK |
 | 2026-11-10 | Migración `0009` — cierre de jornadas olvidadas | `dgiron-2025071` | [#30](https://github.com/dgiron-2025071/AppCarrousel/pull/30) | Mergeado a `develop` | 160 pruebas OK |
-| 2026-11-10 | Migraciones `0010`/`0011` — retiro de solicitudes pendientes | `dgiron-2025071` | [#31](https://github.com/dgiron-2025071/AppCarrousel/pull/31) | En revisión | 166 pruebas OK |
+| 2026-11-10 | Migraciones `0010`/`0011` — retiro de solicitudes pendientes | `dgiron-2025071` | [#31](https://github.com/dgiron-2025071/AppCarrousel/pull/31) | Mergeado a `develop` | 166 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
