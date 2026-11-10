@@ -66,6 +66,10 @@ dejan datos ni privilegios modificados.
   justificación mínima, centro de la misma empresa, aprobación/rechazo por el
   admin del subárbol, comentario opcional, firma automática de la revisión y
   prohibición de revisar solicitudes propias, ajenas o ya revisadas.
+- Retiro de solicitudes: el especialista cancela únicamente su propia solicitud
+  pendiente. Se conserva la fila con `revisado_en` como marca de cierre,
+  `revisado_por` queda NULL, el comentario no puede escribirse y el admin ya no
+  puede aprobarla ni rechazarla.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -75,7 +79,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **160 pruebas OK, 0 FAIL**.
+Resultado actual: **166 pruebas OK, 0 FAIL**.
 
 ## Límites
 

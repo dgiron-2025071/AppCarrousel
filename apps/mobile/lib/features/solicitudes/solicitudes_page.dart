@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/errors/error_messages.dart';
+import '../../core/utils/duraciones.dart';
 import '../../core/widgets/estado_widgets.dart';
 import '../../data/models/solicitud_horas_extras.dart';
 import '../../providers/app_providers.dart';
@@ -21,6 +23,49 @@ class _SolicitudesPageState extends ConsumerState<SolicitudesPage> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const SolicitudFormPage()),
     );
+  }
+
+  Future<void> _retirar(SolicitudDetalle detalle) async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (dialogo) => AlertDialog(
+        title: const Text('Retirar solicitud'),
+        content: Text(
+          'Se retirará la solicitud de horas extras del '
+          '${formatearFecha(detalle.solicitud.inicio)}. '
+          'El historial se conserva y la acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogo).pop(false),
+            child: const Text('Volver'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogo).pop(true),
+            child: const Text('Retirar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmado != true || !mounted) return;
+
+    try {
+      await ref
+          .read(solicitudRepositoryProvider)
+          .cancelar(solicitudId: detalle.solicitud.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Solicitud retirada.')),
+        );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mensajeDeError(error))),
+      );
+    }
   }
 
   @override
@@ -120,7 +165,20 @@ class _SolicitudesPageState extends ConsumerState<SolicitudesPage> {
                   )
                 else
                   for (final detalle in visibles)
-                    SolicitudCard(detalle: detalle),
+                    SolicitudCard(
+                      detalle: detalle,
+                      acciones: detalle.solicitud.estado ==
+                              EstadoSolicitud.pendiente
+                          ? Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _retirar(detalle),
+                                icon: const Icon(Icons.undo_rounded, size: 18),
+                                label: const Text('Retirar solicitud'),
+                              ),
+                            )
+                          : null,
+                    ),
               ],
             ),
           );
