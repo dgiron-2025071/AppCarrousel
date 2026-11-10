@@ -60,6 +60,8 @@ dejan datos ni privilegios modificados.
 - Revocación de lectura: un admin inactivo solo ve su propio perfil, jornadas y
   solicitudes; pierde de inmediato el acceso al equipo sin esperar a que
   expire el JWT. Un empleado inactivo conserva la lectura de su información.
+- Jornadas olvidadas: una jornada abierta de más de 24 h se puede cerrar con el
+  tiempo real trabajado, sin quedar atrapada por el índice de jornada abierta.
 - Horas extras: creación de solicitudes pendientes, rango y duración válidos,
   justificación mínima, centro de la misma empresa, aprobación/rechazo por el
   admin del subárbol, comentario opcional, firma automática de la revisión y
@@ -73,7 +75,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **159 pruebas OK, 0 FAIL**.
+Resultado actual: **160 pruebas OK, 0 FAIL**.
 
 ## Límites
 

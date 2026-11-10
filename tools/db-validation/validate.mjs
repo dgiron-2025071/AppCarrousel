@@ -1134,6 +1134,39 @@ try {
   await q('rollback');
 }
 
+// Una jornada olvidada abierta más de 24 h debe poder cerrarse: si no, el
+// empleado queda atrapado entre el tope de duración y el índice de jornada
+// abierta.
+await q('begin');
+try {
+  const vencida = randomUUID();
+  await q(`
+    insert into public.jornadas (
+      id, empresa_id, empleado_id, parque_id, entrada_en,
+      entrada_lat, entrada_lon, entrada_dentro_geocerca
+    ) values ($1, $2, $3, $4, now() - interval '30 hours',
+              14.6350, -90.5070, true)
+  `, [vencida, A.empresa, U.empA, P.child]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const r = await q(`
+    update public.jornadas
+    set salida_lat = 14.6350, salida_lon = -90.5070, salida_precision_metros = 5
+    where id = $1
+  `, [vencida]);
+  const row = (await q(`
+    select extract(epoch from (salida_en - entrada_en)) / 3600 as horas,
+           salida_dentro_geocerca
+    from public.jornadas where id = $1
+  `, [vencida])).rows[0];
+  eq('cierra una jornada olvidada de más de 24 horas',
+    [r.rowCount, row.salida_dentro_geocerca, Number(row.horas) > 24],
+    [1, true, true]);
+} finally {
+  await q('rollback');
+}
+
 // Un perfil inactivo conserva historial pero no inicia trabajo nuevo.
 const inactivoEmp = randomUUID();
 try {
