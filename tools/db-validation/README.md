@@ -74,6 +74,11 @@ dejan datos ni privilegios modificados.
   `solicitudes_horas_extras` usan `ON DELETE RESTRICT`. Borrar una cuenta con
   actividad falla y conserva el perfil, las jornadas y las solicitudes; la baja
   de personal se hace desactivando `public.perfiles.activo`.
+- Empresas inactivas: `empresas.activa = false` hace que
+  `private.current_empresa_id()` devuelva NULL. El tenant deja de exponer
+  empresa, centros, parques, jornadas y solicitudes, y sus administradores no
+  pueden escribir. Al reactivarla se recupera el acceso. Otra empresa activa no
+  se ve afectada.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -83,7 +88,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **169 pruebas OK, 0 FAIL**.
+Resultado actual: **180 pruebas OK, 0 FAIL**.
 
 ## Límites
 
