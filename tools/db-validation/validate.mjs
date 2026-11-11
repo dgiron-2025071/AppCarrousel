@@ -1486,6 +1486,45 @@ eq('al reactivar la empresa se recupera el acceso',
     (await q('select count(*)::int from public.parques')).rows[0].count), 1);
 
 // -----------------------------------------------------------------------------
+// Degradación de administradores
+// -----------------------------------------------------------------------------
+group('Degradación de administradores');
+await q('begin');
+try {
+  await q(
+    `update auth.users set raw_app_meta_data = $1::jsonb where id = $2`,
+    [appMeta(A.empresa, A.child, 'empleado'), U.gerA],
+  );
+  eq('la degradación se materializa en el perfil',
+    await scalar('select rol from public.perfiles where id = $1', [U.gerA]), 'empleado');
+
+  // El JWT de la prueba sigue diciendo admin: es el escenario de una sesión
+  // abierta antes de la degradación.
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+
+  eq('un admin degradado conserva el JWT pero deja de ser admin',
+    await scalar('select private.es_admin()'), false);
+  eq('un admin degradado no aprueba solicitudes de su antiguo equipo',
+    (await q(`update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+      [S.aPendiente])).rowCount,
+    0);
+  eq('un admin degradado no ve perfiles de su antiguo equipo',
+    (await q('select count(*)::int from public.perfiles where id <> $1', [U.gerA])).rows[0].count,
+    0);
+  eq('un admin degradado no ve jornadas de su antiguo equipo',
+    (await q('select count(*)::int from public.jornadas where empleado_id <> $1', [U.gerA])).rows[0].count,
+    0);
+  eq('un admin degradado solo ve sus propias solicitudes',
+    (await q('select count(*)::int from public.solicitudes_horas_extras where empleado_id <> $1', [U.gerA])).rows[0].count,
+    0);
+  await q('reset role');
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
 group('Fail-closed y anon');
