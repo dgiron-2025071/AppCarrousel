@@ -10,7 +10,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 |---|---|---|
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
-| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0014` implementadas y validadas |
+| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0015` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 21 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
@@ -52,8 +52,9 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **0012** Retención del historial: borrar una cuenta con jornadas o solicitudes se bloquea (`ON DELETE RESTRICT`); la baja de personal se hace desactivando el perfil.
 - [x] **0013** Suspensión efectiva de empresas inactivas: `current_empresa_id()` falla cerrado y corta lectura y escritura del tenant de inmediato.
 - [x] **0014** Revocación inmediata del rol admin: `es_admin()` exige que el perfil materializado siga siendo admin activo de la empresa activa, no solo el JWT.
+- [x] **0015** Foto de la geocerca al entrar: la jornada congela latitud, longitud y radio del parque, y el cierre acepta la geocerca actual o la foto de entrada.
 - [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
-- [x] **186 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] **194 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **21 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
@@ -88,7 +89,7 @@ La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni
 
 - **Login** con correo/contraseña, recuperación de contraseña y **Continuar con Google** (OAuth con PKCE y deep link).
 - **Dashboard del empleado** con horas de hoy, semana y mes, jornada en curso y últimos marcajes; se actualiza con Realtime.
-- **Marcaje de entrada/salida** con `flutter_map` + OpenStreetMap, GPS nativo y selección del parque. El mapa usa `InteractiveFlag.none`; la geocerca se valida en PostgreSQL. Si el parque se desactiva durante el turno, la app conserva ese parque para poder cerrar la jornada y no lo ofrece para nuevas entradas.
+- **Marcaje de entrada/salida** con `flutter_map` + OpenStreetMap, GPS nativo y selección del parque. El mapa usa `InteractiveFlag.none`; la geocerca se valida en PostgreSQL. Si el parque se desactiva durante el turno, la app conserva ese parque para poder cerrar la jornada y no lo ofrece para nuevas entradas. Si el administrador mueve o redimensiona el parque, el cierre se valida contra la geocerca guardada al entrar.
 - **Horas extras:** rango de horas, parque/centro de costo donde apoyó y justificación. La solicitud nace `pendiente`.
 - **Historial propio** de solicitudes con estado, comentario del administrador y actualización en tiempo real. El especialista puede retirar una solicitud mientras siga pendiente; la cancelación conserva el historial.
 - **Aprobaciones del admin:** solicitudes del subárbol con nombre del especialista, justificación, rango y comentario opcional al aprobar o rechazar. El resultado le llega al especialista por Realtime.
@@ -139,7 +140,7 @@ El arnés vive en `tools/db-validation` y usa `embedded-postgres` para ejecutar 
 pnpm --dir tools/db-validation test
 ```
 
-Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0014` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva y la degradación inmediata de un administrador. Resultado actual: **186 pruebas OK, 0 fallos**.
+Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0015` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva, la degradación inmediata de un administrador y el cierre con una geocerca movida o redimensionada durante el turno. Resultado actual: **194 pruebas OK, 0 fallos**.
 
 La Edge Function se verifica sin desplegarla:
 
@@ -185,6 +186,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-11 | Migración `0012` — retención del historial laboral | `dgiron-2025071` | [#35](https://github.com/dgiron-2025071/AppCarrousel/pull/35) | Mergeado a `develop` | 169 pruebas OK |
 | 2026-11-11 | Migración `0013` — suspensión de empresas inactivas | `dgiron-2025071` | [#36](https://github.com/dgiron-2025071/AppCarrousel/pull/36) | Mergeado a `develop` | 180 pruebas OK |
 | 2026-11-11 | Migración `0014` — revocación inmediata del rol admin | `dgiron-2025071` | [#37](https://github.com/dgiron-2025071/AppCarrousel/pull/37) | Mergeado a `develop` | 186 pruebas OK |
+| 2026-11-11 | Migración `0015` — foto de la geocerca al abrir la jornada | `dgiron-2025071` | [#38](https://github.com/dgiron-2025071/AppCarrousel/pull/38) | Mergeado a `develop` | 194 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -259,4 +261,5 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 - La baja de personal se hace desactivando `public.perfiles.activo`, no borrando la cuenta: las FK con `ON DELETE RESTRICT` impiden perder jornadas y solicitudes.
 - Desactivar `public.empresas.activa` corta de inmediato todo el tenant: `current_empresa_id()` devuelve NULL y las políticas fallan cerradas.
 - Degradar o desactivar un administrador surte efecto de inmediato: `es_admin()` cruza el JWT con el perfil materializado, sin esperar a que expire la sesión.
+- La geocerca queda fotografiada al abrir la jornada: mover o redimensionar el parque durante el turno no impide que el empleado cierre donde entró.
 - La app no incluye usuarios, contraseñas ni sesiones de ejemplo.
