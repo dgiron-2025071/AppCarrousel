@@ -79,6 +79,10 @@ dejan datos ni privilegios modificados.
   empresa, centros, parques, jornadas y solicitudes, y sus administradores no
   pueden escribir. Al reactivarla se recupera el acceso. Otra empresa activa no
   se ve afectada.
+- Degradación de administradores: `private.es_admin()` exige que el JWT diga
+  `admin` y que el perfil materializado siga siendo `admin` activo de la empresa
+  activa. Un admin degradado deja de aprobar y de ver su antiguo equipo de
+  inmediato, aunque su JWT aún no haya expirado.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -88,7 +92,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **180 pruebas OK, 0 FAIL**.
+Resultado actual: **186 pruebas OK, 0 FAIL**.
 
 ## Límites
 
