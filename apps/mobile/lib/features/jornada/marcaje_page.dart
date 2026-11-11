@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import '../../core/errors/error_messages.dart';
 import '../../core/utils/duraciones.dart';
 import '../../core/utils/geo.dart';
+import '../../core/utils/parques.dart';
 import '../../core/widgets/estado_widgets.dart';
 import '../../data/models/jornada.dart';
 import '../../data/models/parque.dart';
@@ -112,20 +113,18 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
   }
 
   Parque? _parqueObjetivo(
-    List<Parque> parques,
+    List<Parque> visibles,
     Jornada? abierta,
   ) {
-    if (parques.isEmpty) return null;
+    if (visibles.isEmpty) return null;
 
-    // Al cerrar la jornada se usa siempre el parque con el que se abrió.
-    if (abierta != null) {
-      for (final parque in parques) {
-        if (parque.id == abierta.parqueId) return parque;
-      }
-    }
+    // Al cerrar la jornada se usa siempre el parque con el que se abrió,
+    // aunque se haya desactivado durante el turno.
+    final abierto = parqueDeJornada(visibles, abierta);
+    if (abierto != null) return abierto;
 
     if (_parqueManualId != null) {
-      for (final parque in parques) {
+      for (final parque in visibles) {
         if (parque.id == _parqueManualId) return parque;
       }
     }
@@ -134,7 +133,7 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
     if (posicion != null) {
       Parque? cercano;
       var menor = double.infinity;
-      for (final parque in parques) {
+      for (final parque in visibles) {
         final distancia = distanciaMetros(
           posicion.latitude,
           posicion.longitude,
@@ -149,7 +148,7 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
       if (cercano != null) return cercano;
     }
 
-    return parques.first;
+    return visibles.first;
   }
 
   Future<void> _marcar({
@@ -257,6 +256,14 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
                   'Tu empresa todavía no tiene parques con geocerca. Pide al administrador que los configure.',
             );
           }
+          if (abierta == null && parquesParaEntrada(parques).isEmpty) {
+            return const EstadoVacio(
+              icono: Icons.location_off_outlined,
+              titulo: 'Sin parques activos',
+              mensaje:
+                  'Todos los parques de tu alcance están desactivados. Pide al administrador que habilite uno para marcar tu entrada.',
+            );
+          }
           return _contenido(context, parques, abierta);
         },
       ),
@@ -265,11 +272,13 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
 
   Widget _contenido(
     BuildContext context,
-    List<Parque> parques,
+    List<Parque> todos,
     Jornada? abierta,
   ) {
     final colores = Theme.of(context).colorScheme;
-    final parque = _parqueObjetivo(parques, abierta);
+    final activos = parquesParaEntrada(todos);
+    final visibles = parquesVisibles(todos, abierta);
+    final parque = _parqueObjetivo(visibles, abierta);
     final posicion = _posicion;
     final dentro = parque != null &&
         posicion != null &&
@@ -291,7 +300,7 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
           child: SizedBox(
             height: 300,
             child: _construirMapa(
-              parques: parques,
+              parques: visibles,
               parque: parque,
               posicion: posicion,
               abierta: abierta,
@@ -345,6 +354,17 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
                         '(radio ${parque!.radioMetros.toStringAsFixed(0)} m). '
                         'Acércate para poder marcar.',
           ),
+          if (abierta != null && parque != null && !parque.activo) ...[
+            const SizedBox(height: 10),
+            _Aviso(
+              icono: Icons.warning_amber_rounded,
+              color: colores.tertiaryContainer,
+              colorTexto: colores.onTertiaryContainer,
+              titulo: 'Parque desactivado',
+              mensaje:
+                  'El parque se desactivó durante tu turno. Puedes cerrar la jornada desde aquí, pero no abrir una nueva.',
+            ),
+          ],
         ],
         if (abierta != null) ...[
           const SizedBox(height: 14),
@@ -382,7 +402,7 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
             ),
           ),
         ],
-        if (abierta == null && parques.length > 1) ...[
+        if (abierta == null && activos.length > 1) ...[
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             key: ValueKey('parque-${parque?.id}'),
@@ -392,7 +412,7 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
               prefixIcon: Icon(Icons.attractions_outlined),
             ),
             items: [
-              for (final item in parques)
+              for (final item in activos)
                 DropdownMenuItem(
                   value: item.id,
                   child: Text(item.nombre),
@@ -468,12 +488,16 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
                 point: LatLng(item.latitud, item.longitud),
                 radius: item.radioMetros,
                 useRadiusInMeter: true,
-                color: item.id == parque?.id
-                    ? const Color(0x330F766E)
-                    : const Color(0x1A0F766E),
-                borderColor: item.id == parque?.id
-                    ? const Color(0xCC0F766E)
-                    : const Color(0x660F766E),
+                color: !item.activo
+                    ? const Color(0x1A64748B)
+                    : item.id == parque?.id
+                        ? const Color(0x330F766E)
+                        : const Color(0x1A0F766E),
+                borderColor: !item.activo
+                    ? const Color(0x6664748B)
+                    : item.id == parque?.id
+                        ? const Color(0xCC0F766E)
+                        : const Color(0x660F766E),
                 borderStrokeWidth: 2,
               ),
           ],
@@ -486,11 +510,15 @@ class _MarcajePageState extends ConsumerState<MarcajePage> {
                 width: 40,
                 height: 40,
                 child: Icon(
-                  Icons.attractions_rounded,
+                  item.activo
+                      ? Icons.attractions_rounded
+                      : Icons.attractions_outlined,
                   size: 34,
-                  color: item.id == parque?.id
-                      ? const Color(0xFF0F766E)
-                      : const Color(0xFF64748B),
+                  color: !item.activo
+                      ? const Color(0xFF94A3B8)
+                      : item.id == parque?.id
+                          ? const Color(0xFF0F766E)
+                          : const Color(0xFF64748B),
                 ),
               ),
             if (posicion != null)

@@ -85,7 +85,7 @@ La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni
 
 - **Login** con correo/contraseña, recuperación de contraseña y **Continuar con Google** (OAuth con PKCE y deep link).
 - **Dashboard del empleado** con horas de hoy, semana y mes, jornada en curso y últimos marcajes; se actualiza con Realtime.
-- **Marcaje de entrada/salida** con `flutter_map` + OpenStreetMap, GPS nativo y selección del parque. El mapa usa `InteractiveFlag.none`; la geocerca se valida en PostgreSQL.
+- **Marcaje de entrada/salida** con `flutter_map` + OpenStreetMap, GPS nativo y selección del parque. El mapa usa `InteractiveFlag.none`; la geocerca se valida en PostgreSQL. Si el parque se desactiva durante el turno, la app conserva ese parque para poder cerrar la jornada y no lo ofrece para nuevas entradas.
 - **Horas extras:** rango de horas, parque/centro de costo donde apoyó y justificación. La solicitud nace `pendiente`.
 - **Historial propio** de solicitudes con estado, comentario del administrador y actualización en tiempo real. El especialista puede retirar una solicitud mientras siga pendiente; la cancelación conserva el historial.
 - **Aprobaciones del admin:** solicitudes del subárbol con nombre del especialista, justificación, rango y comentario opcional al aprobar o rechazar. El resultado le llega al especialista por Realtime.
@@ -240,7 +240,7 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 
 1. Desplegar `invitar-usuario` en el proyecto Supabase real y probar el flujo completo de invitación con correo.
 2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible.
-3. Ampliar las pruebas de widget/unitarias de la app Flutter (ya existen pruebas de subárboles, errores de la función y pantalla de invitación).
+3. Ampliar las pruebas de widget/unitarias de la app Flutter (ya existen pruebas de subárboles, selección de parques para cierre, errores de la función y pantalla de invitación).
 4. Cerrar MT-01 con el merge de `develop` a `main`.
 
 ## Seguridad
