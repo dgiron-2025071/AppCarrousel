@@ -10,7 +10,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 |---|---|---|
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
-| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0011` implementadas y validadas |
+| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0012` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 21 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
@@ -49,8 +49,9 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **0009** Cierre de jornadas olvidadas de más de 24 h, sin dejar al empleado atrapado con una jornada abierta.
 - [x] **0010** Estado `cancelada` para que el especialista retire una solicitud enviada por error.
 - [x] **0011** RLS y trigger de retiro: solo el dueño cancela una solicitud pendiente y el admin deja de poder revisarla.
+- [x] **0012** Retención del historial: borrar una cuenta con jornadas o solicitudes se bloquea (`ON DELETE RESTRICT`); la baja de personal se hace desactivando el perfil.
 - [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
-- [x] **166 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] **169 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **21 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
@@ -136,7 +137,7 @@ El arnés vive en `tools/db-validation` y usa `embedded-postgres` para ejecutar 
 pnpm --dir tools/db-validation test
 ```
 
-Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0011` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h y el retiro de solicitudes propias. Resultado actual: **166 pruebas OK, 0 fallos**.
+Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0012` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias y la retención del historial ante el borrado de cuentas. Resultado actual: **169 pruebas OK, 0 fallos**.
 
 La Edge Function se verifica sin desplegarla:
 
@@ -250,4 +251,5 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 - `user_metadata` no se usa para autorización; el rol y el alcance viven en `app_metadata`.
 - Las migraciones se versionan; no se hacen cambios manuales de esquema en el dashboard.
 - Las políticas RLS y los grants se revisan antes de cada merge.
+- La baja de personal se hace desactivando `public.perfiles.activo`, no borrando la cuenta: las FK con `ON DELETE RESTRICT` impiden perder jornadas y solicitudes.
 - La app no incluye usuarios, contraseñas ni sesiones de ejemplo.
