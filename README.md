@@ -193,6 +193,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-11 | Migración `0015` — foto de la geocerca al abrir la jornada | `dgiron-2025071` | [#38](https://github.com/dgiron-2025071/AppCarrousel/pull/38) | Mergeado a `develop` | 194 pruebas OK |
 | 2026-11-11 | MT-01 — backend robusto (`0012`–`0015`) | `develop` | [#39](https://github.com/dgiron-2025071/AppCarrousel/pull/39) | Mergeado a `main` | 194 DB + 28 Flutter + 21 Deno |
 | 2026-11-11 | Migración `0016` — integridad cross-tenant y evidencia de revisión | `dgiron-2025071` | [#41](https://github.com/dgiron-2025071/AppCarrousel/pull/41) | Mergeado a `develop` | 199 pruebas OK |
+| 2026-11-11 | Migración `0017` — revocación inmediata del alcance admin | `dgiron-2025071` | [#42](https://github.com/dgiron-2025071/AppCarrousel/pull/42) | Mergeado a `develop` | 203 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
