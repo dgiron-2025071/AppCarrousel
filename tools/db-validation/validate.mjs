@@ -1076,7 +1076,7 @@ try {
 // Retención del historial: una cuenta con actividad no se puede borrar; se
 // desactiva el perfil para dar de baja sin perder la evidencia.
 group('Retención del historial laboral');
-eq('las FK de empleado usan ON DELETE RESTRICT', await scalar(`
+eq('las FK de empleado son compuestas y usan ON DELETE RESTRICT', await scalar(`
   select count(*)::int
   from pg_constraint c
   join pg_class t on t.oid = c.conrelid
@@ -1084,11 +1084,12 @@ eq('las FK de empleado usan ON DELETE RESTRICT', await scalar(`
   where n.nspname = 'public'
     and t.relname in ('jornadas', 'solicitudes_horas_extras')
     and c.conname in (
-      'jornadas_empleado_id_fkey',
-      'solicitudes_horas_extras_empleado_id_fkey'
+      'jornadas_empleado_empresa_fkey',
+      'solicitudes_empleado_empresa_fkey'
     )
     and c.contype = 'f'
     and c.confdeltype = 'r'
+    and pg_get_constraintdef(c.oid) like '%(empresa_id, empleado_id)%'
 `), 2);
 
 await q('begin');
@@ -1122,7 +1123,7 @@ try {
     [errorJornada?.code, errorJornada?.constraint,
       await scalar('select count(*)::int from public.perfiles where id = $1', [conJornada]),
       await scalar('select count(*)::int from public.jornadas where empleado_id = $1', [conJornada])],
-    ['23503', 'jornadas_empleado_id_fkey', 1, 1]);
+    ['23503', 'jornadas_empleado_empresa_fkey', 1, 1]);
 
   const conSolicitud = randomUUID();
   await q(
@@ -1151,7 +1152,111 @@ try {
     [errorSolicitud?.code, errorSolicitud?.constraint,
       await scalar('select count(*)::int from public.perfiles where id = $1', [conSolicitud]),
       await scalar('select count(*)::int from public.solicitudes_horas_extras where empleado_id = $1', [conSolicitud])],
-    ['23503', 'solicitudes_horas_extras_empleado_id_fkey', 1, 1]);
+    ['23503', 'solicitudes_empleado_empresa_fkey', 1, 1]);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
+// Integridad cross-tenant y evidencia de revisión
+// -----------------------------------------------------------------------------
+group('Integridad cross-tenant y evidencia de revisión');
+eq('la FK del revisor es compuesta y usa ON DELETE RESTRICT', await scalar(`
+  select count(*)::int
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname = 'solicitudes_horas_extras'
+    and c.conname = 'solicitudes_revisado_por_empresa_fkey'
+    and c.contype = 'f'
+    and c.confdeltype = 'r'
+    and pg_get_constraintdef(c.oid) like '%(empresa_id, revisado_por)%'
+`), 1);
+
+await q('begin');
+try {
+  const revisor = randomUUID();
+  await q(
+    `insert into auth.users (id, email, raw_app_meta_data)
+     values ($1, 'revisor.retenido@example.com', $2::jsonb)`,
+    [revisor, appMeta(A.empresa, A.child, 'admin')],
+  );
+
+  const solicitudRevisada = randomUUID();
+  await q(`
+    insert into public.solicitudes_horas_extras (
+      id, empresa_id, empleado_id, centro_costo_id, inicio, fin,
+      justificacion, estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, $4, now() - interval '2 hours', now() - interval '1 hour',
+      'Evidencia de revisión retenida para auditoría', 'aprobada', $5, now()
+    )
+  `, [solicitudRevisada, A.empresa, U.empA, A.child, revisor]);
+
+  // Un revisor de otra empresa no puede quedar asociado a la solicitud.
+  await q('savepoint revisor_ajeno');
+  let errorRevisor = null;
+  try {
+    await q(`
+      insert into public.solicitudes_horas_extras (
+        empresa_id, empleado_id, centro_costo_id, inicio, fin,
+        justificacion, estado, revisado_por, revisado_en
+      ) values (
+        $1, $2, $3, now() - interval '3 hours', now() - interval '2 hours',
+        'Revisor que pertenece a otra empresa', 'aprobada', $4, now()
+      )
+    `, [A.empresa, U.empA, A.child, U.empB]);
+  } catch (error) {
+    errorRevisor = error;
+  }
+  await q('rollback to savepoint revisor_ajeno');
+  eq('un revisor de otra empresa es rechazado', errorRevisor?.code, '23503');
+
+  // Una jornada no puede apuntar a un empleado de otra empresa.
+  await q('savepoint jornada_cross_tenant');
+  let errorJornada = null;
+  try {
+    await q(`
+      insert into public.jornadas (
+        empresa_id, empleado_id, parque_id, entrada_lat, entrada_lon
+      ) values ($1, $2, $3, 14.6350, -90.5070)
+    `, [A.empresa, U.empB, P.child]);
+  } catch (error) {
+    errorJornada = error;
+  }
+  await q('rollback to savepoint jornada_cross_tenant');
+  eq('una jornada con empleado de otra empresa es rechazada',
+    errorJornada?.code, '23503');
+
+  // Borrar al revisor no puede dejar la solicitud sin evidencia.
+  await q('savepoint borrar_revisor');
+  let errorBorrado = null;
+  try {
+    await q('delete from auth.users where id = $1', [revisor]);
+  } catch (error) {
+    errorBorrado = error;
+  }
+  await q('rollback to savepoint borrar_revisor');
+  eq('borrar al revisor falla y conserva la evidencia',
+    [errorBorrado?.code, errorBorrado?.constraint,
+      await scalar('select revisado_por from public.solicitudes_horas_extras where id = $1', [solicitudRevisada])],
+    ['23503', 'solicitudes_revisado_por_empresa_fkey', revisor]);
+
+  // Tampoco se puede reescribir la empresa de un empleado con historial.
+  await q('savepoint mover_empleado');
+  let errorMover = null;
+  try {
+    await q(
+      'update public.perfiles set empresa_id = $1, centro_costo_id = $2 where id = $3',
+      [B.empresa, B.root, U.empA],
+    );
+  } catch (error) {
+    errorMover = error;
+  }
+  await q('rollback to savepoint mover_empleado');
+  eq('no se mueve de empresa a un empleado con historial',
+    errorMover?.code, '23503');
 } finally {
   await q('rollback');
 }
