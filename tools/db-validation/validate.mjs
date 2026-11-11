@@ -1428,6 +1428,64 @@ eq('actualizado_en y actualizado_por se actualizan',
   [U.gerA, true]);
 
 // -----------------------------------------------------------------------------
+// Empresas inactivas
+// -----------------------------------------------------------------------------
+group('Empresas inactivas');
+const adminEmpresaB = randomUUID();
+await q(
+  `insert into auth.users (id, email, raw_app_meta_data)
+   values ($1, 'admin.b@example.com', $2::jsonb)`,
+  [adminEmpresaB, appMeta(B.empresa, B.root, 'admin')],
+);
+try {
+  const claimsEmpB = claims(U.empB, B.empresa, B.root, 'empleado');
+  const claimsAdminB = claims(adminEmpresaB, B.empresa, B.root, 'admin');
+
+  await q('update public.empresas set activa = false where id = $1', [B.empresa]);
+
+  eq('current_empresa_id devuelve NULL para una empresa inactiva',
+    await withRole('authenticated', claimsEmpB, async () =>
+      scalar('select private.current_empresa_id()')), null);
+  eq('la empresa inactiva no expone su fila',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.empresas')).rows[0].count), 0);
+  eq('la empresa inactiva no expone centros',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.centros_costo')).rows[0].count), 0);
+  eq('la empresa inactiva no expone parques',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.parques')).rows[0].count), 0);
+  eq('la empresa inactiva no expone jornadas',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.jornadas')).rows[0].count), 0);
+  eq('la empresa inactiva no expone solicitudes',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.solicitudes_horas_extras')).rows[0].count), 0);
+  eq('la empresa inactiva conserva la lectura del propio perfil',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select id from public.perfiles')).rows.map((r) => r.id)), [U.empB]);
+  eq('un admin de una empresa inactiva no actualiza la empresa',
+    await withRole('authenticated', claimsAdminB, async () =>
+      (await q(`update public.empresas set nombre = 'Suspendida' where id = $1`, [B.empresa])).rowCount),
+    0);
+  await expectRoleError('un admin de una empresa inactiva no crea centros', 'authenticated',
+    claimsAdminB, `
+      insert into public.centros_costo (empresa_id, padre_id, codigo, nombre)
+      values ($1, $2, 'B-INACTIVA', 'Centro bloqueado')
+    `, [B.empresa, B.root], '42501');
+  eq('una empresa inactiva no afecta a las demás',
+    await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+      (await q('select count(*)::int from public.parques')).rows[0].count), 4);
+} finally {
+  await q('update public.empresas set activa = true where id = $1', [B.empresa]);
+  await q('delete from auth.users where id = $1', [adminEmpresaB]);
+}
+
+eq('al reactivar la empresa se recupera el acceso',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    (await q('select count(*)::int from public.parques')).rows[0].count), 1);
+
+// -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
 group('Fail-closed y anon');
