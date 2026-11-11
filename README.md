@@ -182,6 +182,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-10 | Migraciones `0010`/`0011` — retiro de solicitudes pendientes | `dgiron-2025071` | [#31](https://github.com/dgiron-2025071/AppCarrousel/pull/31) | Mergeado a `develop` | 166 pruebas OK |
 | 2026-11-11 | App: cierre de jornada si el parque se desactiva | `dgiron-2025071` | [#34](https://github.com/dgiron-2025071/AppCarrousel/pull/34) | Mergeado a `develop` | `flutter analyze`, 28 pruebas |
 | 2026-11-11 | Migración `0012` — retención del historial laboral | `dgiron-2025071` | [#35](https://github.com/dgiron-2025071/AppCarrousel/pull/35) | Mergeado a `develop` | 169 pruebas OK |
+| 2026-11-11 | Migración `0013` — suspensión de empresas inactivas | `dgiron-2025071` | [#36](https://github.com/dgiron-2025071/AppCarrousel/pull/36) | Mergeado a `develop` | 180 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
