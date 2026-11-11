@@ -186,6 +186,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-11 | Migración `0012` — retención del historial laboral | `dgiron-2025071` | [#35](https://github.com/dgiron-2025071/AppCarrousel/pull/35) | Mergeado a `develop` | 169 pruebas OK |
 | 2026-11-11 | Migración `0013` — suspensión de empresas inactivas | `dgiron-2025071` | [#36](https://github.com/dgiron-2025071/AppCarrousel/pull/36) | Mergeado a `develop` | 180 pruebas OK |
 | 2026-11-11 | Migración `0014` — revocación inmediata del rol admin | `dgiron-2025071` | [#37](https://github.com/dgiron-2025071/AppCarrousel/pull/37) | Mergeado a `develop` | 186 pruebas OK |
+| 2026-11-11 | Migración `0015` — foto de la geocerca al abrir la jornada | `dgiron-2025071` | [#38](https://github.com/dgiron-2025071/AppCarrousel/pull/38) | Mergeado a `develop` | 194 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
