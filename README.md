@@ -10,7 +10,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 |---|---|---|
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
-| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0016` implementadas y validadas |
+| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`–`0017` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 21 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
@@ -56,8 +56,9 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **0014** Revocación inmediata del rol admin: `es_admin()` exige que el perfil materializado siga siendo admin activo de la empresa activa, no solo el JWT.
 - [x] **0015** Foto de la geocerca al entrar: la jornada congela latitud, longitud y radio del parque, y el cierre acepta la geocerca actual o la foto de entrada.
 - [x] **0016** Integridad cross-tenant: las FK de empleado y revisor incluyen `empresa_id` y usan `ON DELETE RESTRICT`; borrar al revisor ya no pierde la evidencia de la revisión.
+- [x] **0017** Revocación inmediata del alcance admin: `es_admin()` exige que el centro del perfil coincida con el del JWT; mover a un admin de subárbol surte efecto de inmediato.
 - [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
-- [x] **199 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] **203 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **21 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
@@ -143,7 +144,7 @@ El arnés vive en `tools/db-validation` y usa `embedded-postgres` para ejecutar 
 pnpm --dir tools/db-validation test
 ```
 
-Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0016` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva, la degradación inmediata de un administrador, el cierre con una geocerca movida o redimensionada durante el turno y la integridad cross-tenant del empleado y del revisor. Resultado actual: **199 pruebas OK, 0 fallos**.
+Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`–`0017` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva, la degradación inmediata de un administrador, el cierre con una geocerca movida o redimensionada durante el turno, la integridad cross-tenant del empleado y del revisor y la revocación inmediata del alcance de un admin movido de subárbol. Resultado actual: **203 pruebas OK, 0 fallos**.
 
 La Edge Function se verifica sin desplegarla:
 
@@ -192,6 +193,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-11 | Migración `0015` — foto de la geocerca al abrir la jornada | `dgiron-2025071` | [#38](https://github.com/dgiron-2025071/AppCarrousel/pull/38) | Mergeado a `develop` | 194 pruebas OK |
 | 2026-11-11 | MT-01 — backend robusto (`0012`–`0015`) | `develop` | [#39](https://github.com/dgiron-2025071/AppCarrousel/pull/39) | Mergeado a `main` | 194 DB + 28 Flutter + 21 Deno |
 | 2026-11-11 | Migración `0016` — integridad cross-tenant y evidencia de revisión | `dgiron-2025071` | [#41](https://github.com/dgiron-2025071/AppCarrousel/pull/41) | Mergeado a `develop` | 199 pruebas OK |
+| 2026-11-11 | Migración `0017` — revocación inmediata del alcance admin | `dgiron-2025071` | [#42](https://github.com/dgiron-2025071/AppCarrousel/pull/42) | Mergeado a `develop` | 203 pruebas OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -265,7 +267,7 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 - Las políticas RLS y los grants se revisan antes de cada merge.
 - La baja de personal se hace desactivando `public.perfiles.activo`, no borrando la cuenta: las FK con `ON DELETE RESTRICT` impiden perder jornadas, solicitudes y la evidencia de quién revisó.
 - Desactivar `public.empresas.activa` corta de inmediato todo el tenant: `current_empresa_id()` devuelve NULL y las políticas fallan cerradas.
-- Degradar o desactivar un administrador surte efecto de inmediato: `es_admin()` cruza el JWT con el perfil materializado, sin esperar a que expire la sesión.
+- Degradar, desactivar o mover de subárbol a un administrador surte efecto de inmediato: `es_admin()` cruza el JWT con el rol, la empresa y el centro del perfil materializado, sin esperar a que expire la sesión.
 - La geocerca queda fotografiada al abrir la jornada: mover o redimensionar el parque durante el turno no impide que el empleado cierre donde entró.
 - Jornadas y solicitudes referencian al empleado con su `empresa_id`: una fila no puede quedar apuntando a un perfil de otra empresa, y una transferencia entre empresas exige desactivar la cuenta y crear una nueva.
 - La app no incluye usuarios, contraseñas ni sesiones de ejemplo.

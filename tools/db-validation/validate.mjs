@@ -1736,6 +1736,43 @@ try {
 }
 
 // -----------------------------------------------------------------------------
+// Cambio de alcance de administradores
+// -----------------------------------------------------------------------------
+group('Cambio de alcance de administradores');
+await q('begin');
+try {
+  // Mover el perfil al centro hermano conserva la empresa y no rompe el
+  // historial, pero el JWT de la prueba sigue apuntando al centro anterior.
+  await q('update public.perfiles set centro_costo_id = $1 where id = $2',
+    [A.sibling, U.gerA]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+
+  eq('un admin con el centro cambiado deja de ser admin con el JWT viejo',
+    await scalar('select private.es_admin()'), false);
+  eq('un admin con el centro cambiado no ve perfiles de su antiguo equipo',
+    (await q('select count(*)::int from public.perfiles where id <> $1', [U.gerA])).rows[0].count,
+    0);
+  eq('un admin con el centro cambiado no aprueba solicitudes de su antiguo equipo',
+    (await q(`update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+      [S.aPendiente])).rowCount,
+    0);
+
+  // Con el JWT actualizado al centro nuevo recupera el rol.
+  await q('reset role');
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.sibling, 'admin'))]);
+  eq('con el JWT del centro nuevo recupera el rol',
+    await scalar('select private.es_admin()'), true);
+  await q('reset role');
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
 group('Fail-closed y anon');

@@ -81,8 +81,9 @@ dejan datos ni privilegios modificados.
   se ve afectada.
 - Degradación de administradores: `private.es_admin()` exige que el JWT diga
   `admin` y que el perfil materializado siga siendo `admin` activo de la empresa
-  activa. Un admin degradado deja de aprobar y de ver su antiguo equipo de
-  inmediato, aunque su JWT aún no haya expirado.
+  activa y del mismo centro. Un admin degradado o movido de subárbol deja de
+  aprobar y de ver su antiguo equipo de inmediato, aunque su JWT aún no haya
+  expirado; al refrescar la sesión con el centro nuevo recupera el rol.
 - Geocerca congelada: al abrir la jornada se guardan latitud, longitud y radio
   del parque. El cierre acepta la geocerca actual o la foto de entrada, así que
   mover o redimensionar el parque durante el turno no atrapa al empleado. Un
@@ -101,7 +102,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **199 pruebas OK, 0 FAIL**.
+Resultado actual: **203 pruebas OK, 0 FAIL**.
 
 ## Límites
 
