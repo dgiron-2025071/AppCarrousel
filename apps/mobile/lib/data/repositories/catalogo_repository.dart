@@ -22,7 +22,6 @@ class CatalogoRepository {
         .select(
           'id, empresa_id, centro_costo_id, codigo, nombre, latitud, longitud, radio_metros, activo',
         )
-        .eq('activo', true)
         .order('nombre');
     return filas.map(Parque.fromMap).toList(growable: false);
   }
