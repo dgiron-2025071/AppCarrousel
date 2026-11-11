@@ -38,6 +38,8 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 
 ## Estado del backend — MT-01
 
+> MT-01 cerrada en `main` el 2026-11-11 con el merge [#39](https://github.com/dgiron-2025071/AppCarrousel/pull/39) (`894f2b5`). Los únicos pendientes son ambientales: desplegar la Edge Function con credenciales reales y ejecutar `supabase db reset` cuando Docker/WSL2 esté disponible.
+
 - [x] **0001** Bootstrap: extensiones, schema `private`, enum `rol_usuario`, helpers JWT, auditoría y endurecimiento de grants.
 - [x] **0002** `empresas` + jerarquía dinámica de `centros_costo` + RLS por subárbol.
 - [x] **0003** `parques` + geocerca + RLS por alcance.
@@ -187,6 +189,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-11 | Migración `0013` — suspensión de empresas inactivas | `dgiron-2025071` | [#36](https://github.com/dgiron-2025071/AppCarrousel/pull/36) | Mergeado a `develop` | 180 pruebas OK |
 | 2026-11-11 | Migración `0014` — revocación inmediata del rol admin | `dgiron-2025071` | [#37](https://github.com/dgiron-2025071/AppCarrousel/pull/37) | Mergeado a `develop` | 186 pruebas OK |
 | 2026-11-11 | Migración `0015` — foto de la geocerca al abrir la jornada | `dgiron-2025071` | [#38](https://github.com/dgiron-2025071/AppCarrousel/pull/38) | Mergeado a `develop` | 194 pruebas OK |
+| 2026-11-11 | MT-01 — backend robusto (`0012`–`0015`) | `develop` | [#39](https://github.com/dgiron-2025071/AppCarrousel/pull/39) | Mergeado a `main` | 194 DB + 28 Flutter + 21 Deno |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -250,7 +253,7 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 1. Desplegar `invitar-usuario` en el proyecto Supabase real y probar el flujo completo de invitación con correo.
 2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible.
 3. Ampliar las pruebas de widget/unitarias de la app Flutter (ya existen pruebas de subárboles, selección de parques para cierre, errores de la función y pantalla de invitación).
-4. Cerrar MT-01 con el merge de `develop` a `main`.
+4. MT-01 cerrada con el merge de `develop` a `main` (PR #39, `894f2b5`).
 
 ## Seguridad
 
