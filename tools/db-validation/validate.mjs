@@ -1073,6 +1073,89 @@ try {
   await q('rollback');
 }
 
+// Retención del historial: una cuenta con actividad no se puede borrar; se
+// desactiva el perfil para dar de baja sin perder la evidencia.
+group('Retención del historial laboral');
+eq('las FK de empleado usan ON DELETE RESTRICT', await scalar(`
+  select count(*)::int
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname in ('jornadas', 'solicitudes_horas_extras')
+    and c.conname in (
+      'jornadas_empleado_id_fkey',
+      'solicitudes_horas_extras_empleado_id_fkey'
+    )
+    and c.contype = 'f'
+    and c.confdeltype = 'r'
+`), 2);
+
+await q('begin');
+try {
+  const conJornada = randomUUID();
+  await q(
+    `insert into auth.users (id, email, raw_app_meta_data)
+     values ($1, 'historial.jornada@example.com', $2::jsonb)`,
+    [conJornada, appMeta(A.empresa, A.child, 'empleado')],
+  );
+  await q(`
+    insert into public.jornadas (
+      empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+      entrada_lat, entrada_lon, entrada_dentro_geocerca,
+      salida_lat, salida_lon, salida_dentro_geocerca
+    ) values (
+      $1, $2, $3, now() - interval '2 hours', now() - interval '1 hour',
+      14.6350, -90.5070, true, 14.6350, -90.5070, true
+    )
+  `, [A.empresa, conJornada, P.child]);
+
+  await q('savepoint intento_jornada');
+  let errorJornada = null;
+  try {
+    await q('delete from auth.users where id = $1', [conJornada]);
+  } catch (error) {
+    errorJornada = error;
+  }
+  await q('rollback to savepoint intento_jornada');
+  eq('borrar una cuenta con jornadas falla por la FK de jornadas',
+    [errorJornada?.code, errorJornada?.constraint,
+      await scalar('select count(*)::int from public.perfiles where id = $1', [conJornada]),
+      await scalar('select count(*)::int from public.jornadas where empleado_id = $1', [conJornada])],
+    ['23503', 'jornadas_empleado_id_fkey', 1, 1]);
+
+  const conSolicitud = randomUUID();
+  await q(
+    `insert into auth.users (id, email, raw_app_meta_data)
+     values ($1, 'historial.solicitud@example.com', $2::jsonb)`,
+    [conSolicitud, appMeta(A.empresa, A.child, 'empleado')],
+  );
+  await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+    ) values (
+      $1, $2, $3, now() - interval '2 hours', now() - interval '1 hour',
+      'Historial retenido ante el borrado de la cuenta'
+    )
+  `, [A.empresa, conSolicitud, A.child]);
+
+  await q('savepoint intento_solicitud');
+  let errorSolicitud = null;
+  try {
+    await q('delete from auth.users where id = $1', [conSolicitud]);
+  } catch (error) {
+    errorSolicitud = error;
+  }
+  await q('rollback to savepoint intento_solicitud');
+  eq('borrar una cuenta con solicitudes falla por la FK de solicitudes',
+    [errorSolicitud?.code, errorSolicitud?.constraint,
+      await scalar('select count(*)::int from public.perfiles where id = $1', [conSolicitud]),
+      await scalar('select count(*)::int from public.solicitudes_horas_extras where empleado_id = $1', [conSolicitud])],
+    ['23503', 'solicitudes_horas_extras_empleado_id_fkey', 1, 1]);
+} finally {
+  await q('rollback');
+}
+
 eq('empleado solo ve su propio perfil',
   await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
     (await q('select id from public.perfiles')).rows.map((r) => r.id)),
@@ -1330,6 +1413,112 @@ try {
 }
 
 // -----------------------------------------------------------------------------
+// Geocerca congelada al entrar
+// -----------------------------------------------------------------------------
+group('Geocerca congelada al entrar');
+
+const jornadaFoto = await withRole('authenticated', empAClaims, async () => {
+  const r = await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon, entrada_precision_metros)
+    values ($1, 14.6350, -90.5070, 5)
+    returning entrada_parque_lat, entrada_parque_lon, entrada_parque_radio_metros
+  `, [P.child]);
+  return r.rows[0];
+});
+eq('la jornada guarda la geocerca del parque al entrar',
+  [jornadaFoto.entrada_parque_lat, jornadaFoto.entrada_parque_lon,
+    jornadaFoto.entrada_parque_radio_metros],
+  [14.6350, -90.5070, 100]);
+eq('las jornadas existentes tienen foto de geocerca',
+  await scalar(`select count(*)::int from public.jornadas
+                where entrada_parque_lat is null
+                   or entrada_parque_lon is null
+                   or entrada_parque_radio_metros is null`),
+  0);
+
+eq('en_geocerca_snapshot acepta un punto dentro de la foto',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca_snapshot(14.6350, -90.5070, 0, 14.6350, -90.5070, 100)')),
+  true);
+eq('en_geocerca_snapshot rechaza un punto fuera de la foto',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca_snapshot(14.7000, -90.6000, 0, 14.6350, -90.5070, 100)')),
+  false);
+
+await expectRoleError('el cliente no escribe la foto de la geocerca', 'authenticated',
+  empAClaims, `
+  insert into public.jornadas (
+    parque_id, entrada_lat, entrada_lon, entrada_parque_lat
+  ) values ($1, 14.6350, -90.5070, 14.7000)
+`, [P.child], '42501');
+
+// Cierre en el punto original aunque el admin mueva y reduzca el parque.
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const id = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070) returning id
+  `, [P.child])).rows[0].id;
+
+  await q('reset role');
+  await q(`
+    update public.parques
+    set latitud = 14.7000, longitud = -90.6000, radio_metros = 1
+    where id = $1
+  `, [P.child]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const r = await q(`
+    update public.jornadas
+    set salida_lat = 14.6350, salida_lon = -90.5070, salida_precision_metros = 5
+    where id = $1
+  `, [id]);
+  const row = (await q(
+    'select salida_dentro_geocerca from public.jornadas where id = $1', [id],
+  )).rows[0];
+  eq('cierra en el punto original aunque el parque se haya movido',
+    [r.rowCount, row.salida_dentro_geocerca], [1, true]);
+
+  // Un segundo turno que empieza en la nueva ubicación no puede cerrarse en la
+  // ubicación anterior: la foto ya es la nueva.
+  const id2 = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.7000, -90.6000) returning id
+  `, [P.child])).rows[0].id;
+
+  await q('savepoint cierre_viejo');
+  let errorCierre = null;
+  try {
+    await q(`
+      update public.jornadas
+      set salida_lat = 14.6350, salida_lon = -90.5070
+      where id = $1
+    `, [id2]);
+  } catch (error) {
+    errorCierre = error;
+  }
+  await q('rollback to savepoint cierre_viejo');
+  eq('un turno abierto en la nueva ubicación no cierra en la anterior',
+    errorCierre?.code, '23514');
+
+  const r2 = await q(`
+    update public.jornadas
+    set salida_lat = 14.7000, salida_lon = -90.6000
+    where id = $1
+  `, [id2]);
+  const row2 = (await q(
+    'select salida_dentro_geocerca from public.jornadas where id = $1', [id2],
+  )).rows[0];
+  eq('el turno abierto en la nueva ubicación sí cierra allí',
+    [r2.rowCount, row2.salida_dentro_geocerca], [1, true]);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
 // Auditoría
 // -----------------------------------------------------------------------------
 group('Auditoría');
@@ -1343,6 +1532,103 @@ eq('actualizado_en y actualizado_por se actualizan',
     return [r.actualizado_por, r.avanzo];
   }),
   [U.gerA, true]);
+
+// -----------------------------------------------------------------------------
+// Empresas inactivas
+// -----------------------------------------------------------------------------
+group('Empresas inactivas');
+const adminEmpresaB = randomUUID();
+await q(
+  `insert into auth.users (id, email, raw_app_meta_data)
+   values ($1, 'admin.b@example.com', $2::jsonb)`,
+  [adminEmpresaB, appMeta(B.empresa, B.root, 'admin')],
+);
+try {
+  const claimsEmpB = claims(U.empB, B.empresa, B.root, 'empleado');
+  const claimsAdminB = claims(adminEmpresaB, B.empresa, B.root, 'admin');
+
+  await q('update public.empresas set activa = false where id = $1', [B.empresa]);
+
+  eq('current_empresa_id devuelve NULL para una empresa inactiva',
+    await withRole('authenticated', claimsEmpB, async () =>
+      scalar('select private.current_empresa_id()')), null);
+  eq('la empresa inactiva no expone su fila',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.empresas')).rows[0].count), 0);
+  eq('la empresa inactiva no expone centros',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.centros_costo')).rows[0].count), 0);
+  eq('la empresa inactiva no expone parques',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.parques')).rows[0].count), 0);
+  eq('la empresa inactiva no expone jornadas',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.jornadas')).rows[0].count), 0);
+  eq('la empresa inactiva no expone solicitudes',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select count(*)::int from public.solicitudes_horas_extras')).rows[0].count), 0);
+  eq('la empresa inactiva conserva la lectura del propio perfil',
+    await withRole('authenticated', claimsEmpB, async () =>
+      (await q('select id from public.perfiles')).rows.map((r) => r.id)), [U.empB]);
+  eq('un admin de una empresa inactiva no actualiza la empresa',
+    await withRole('authenticated', claimsAdminB, async () =>
+      (await q(`update public.empresas set nombre = 'Suspendida' where id = $1`, [B.empresa])).rowCount),
+    0);
+  await expectRoleError('un admin de una empresa inactiva no crea centros', 'authenticated',
+    claimsAdminB, `
+      insert into public.centros_costo (empresa_id, padre_id, codigo, nombre)
+      values ($1, $2, 'B-INACTIVA', 'Centro bloqueado')
+    `, [B.empresa, B.root], '42501');
+  eq('una empresa inactiva no afecta a las demás',
+    await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+      (await q('select count(*)::int from public.parques')).rows[0].count), 4);
+} finally {
+  await q('update public.empresas set activa = true where id = $1', [B.empresa]);
+  await q('delete from auth.users where id = $1', [adminEmpresaB]);
+}
+
+eq('al reactivar la empresa se recupera el acceso',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    (await q('select count(*)::int from public.parques')).rows[0].count), 1);
+
+// -----------------------------------------------------------------------------
+// Degradación de administradores
+// -----------------------------------------------------------------------------
+group('Degradación de administradores');
+await q('begin');
+try {
+  await q(
+    `update auth.users set raw_app_meta_data = $1::jsonb where id = $2`,
+    [appMeta(A.empresa, A.child, 'empleado'), U.gerA],
+  );
+  eq('la degradación se materializa en el perfil',
+    await scalar('select rol from public.perfiles where id = $1', [U.gerA]), 'empleado');
+
+  // El JWT de la prueba sigue diciendo admin: es el escenario de una sesión
+  // abierta antes de la degradación.
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+
+  eq('un admin degradado conserva el JWT pero deja de ser admin',
+    await scalar('select private.es_admin()'), false);
+  eq('un admin degradado no aprueba solicitudes de su antiguo equipo',
+    (await q(`update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+      [S.aPendiente])).rowCount,
+    0);
+  eq('un admin degradado no ve perfiles de su antiguo equipo',
+    (await q('select count(*)::int from public.perfiles where id <> $1', [U.gerA])).rows[0].count,
+    0);
+  eq('un admin degradado no ve jornadas de su antiguo equipo',
+    (await q('select count(*)::int from public.jornadas where empleado_id <> $1', [U.gerA])).rows[0].count,
+    0);
+  eq('un admin degradado solo ve sus propias solicitudes',
+    (await q('select count(*)::int from public.solicitudes_horas_extras where empleado_id <> $1', [U.gerA])).rows[0].count,
+    0);
+  await q('reset role');
+} finally {
+  await q('rollback');
+}
 
 // -----------------------------------------------------------------------------
 // Sin claims y anon
