@@ -1413,6 +1413,112 @@ try {
 }
 
 // -----------------------------------------------------------------------------
+// Geocerca congelada al entrar
+// -----------------------------------------------------------------------------
+group('Geocerca congelada al entrar');
+
+const jornadaFoto = await withRole('authenticated', empAClaims, async () => {
+  const r = await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon, entrada_precision_metros)
+    values ($1, 14.6350, -90.5070, 5)
+    returning entrada_parque_lat, entrada_parque_lon, entrada_parque_radio_metros
+  `, [P.child]);
+  return r.rows[0];
+});
+eq('la jornada guarda la geocerca del parque al entrar',
+  [jornadaFoto.entrada_parque_lat, jornadaFoto.entrada_parque_lon,
+    jornadaFoto.entrada_parque_radio_metros],
+  [14.6350, -90.5070, 100]);
+eq('las jornadas existentes tienen foto de geocerca',
+  await scalar(`select count(*)::int from public.jornadas
+                where entrada_parque_lat is null
+                   or entrada_parque_lon is null
+                   or entrada_parque_radio_metros is null`),
+  0);
+
+eq('en_geocerca_snapshot acepta un punto dentro de la foto',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca_snapshot(14.6350, -90.5070, 0, 14.6350, -90.5070, 100)')),
+  true);
+eq('en_geocerca_snapshot rechaza un punto fuera de la foto',
+  await withRole('authenticated', empAClaims, async () =>
+    scalar('select private.en_geocerca_snapshot(14.7000, -90.6000, 0, 14.6350, -90.5070, 100)')),
+  false);
+
+await expectRoleError('el cliente no escribe la foto de la geocerca', 'authenticated',
+  empAClaims, `
+  insert into public.jornadas (
+    parque_id, entrada_lat, entrada_lon, entrada_parque_lat
+  ) values ($1, 14.6350, -90.5070, 14.7000)
+`, [P.child], '42501');
+
+// Cierre en el punto original aunque el admin mueva y reduzca el parque.
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const id = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070) returning id
+  `, [P.child])).rows[0].id;
+
+  await q('reset role');
+  await q(`
+    update public.parques
+    set latitud = 14.7000, longitud = -90.6000, radio_metros = 1
+    where id = $1
+  `, [P.child]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(empAClaims)]);
+  const r = await q(`
+    update public.jornadas
+    set salida_lat = 14.6350, salida_lon = -90.5070, salida_precision_metros = 5
+    where id = $1
+  `, [id]);
+  const row = (await q(
+    'select salida_dentro_geocerca from public.jornadas where id = $1', [id],
+  )).rows[0];
+  eq('cierra en el punto original aunque el parque se haya movido',
+    [r.rowCount, row.salida_dentro_geocerca], [1, true]);
+
+  // Un segundo turno que empieza en la nueva ubicación no puede cerrarse en la
+  // ubicación anterior: la foto ya es la nueva.
+  const id2 = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.7000, -90.6000) returning id
+  `, [P.child])).rows[0].id;
+
+  await q('savepoint cierre_viejo');
+  let errorCierre = null;
+  try {
+    await q(`
+      update public.jornadas
+      set salida_lat = 14.6350, salida_lon = -90.5070
+      where id = $1
+    `, [id2]);
+  } catch (error) {
+    errorCierre = error;
+  }
+  await q('rollback to savepoint cierre_viejo');
+  eq('un turno abierto en la nueva ubicación no cierra en la anterior',
+    errorCierre?.code, '23514');
+
+  const r2 = await q(`
+    update public.jornadas
+    set salida_lat = 14.7000, salida_lon = -90.6000
+    where id = $1
+  `, [id2]);
+  const row2 = (await q(
+    'select salida_dentro_geocerca from public.jornadas where id = $1', [id2],
+  )).rows[0];
+  eq('el turno abierto en la nueva ubicación sí cierra allí',
+    [r2.rowCount, row2.salida_dentro_geocerca], [1, true]);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
 // Auditoría
 // -----------------------------------------------------------------------------
 group('Auditoría');

@@ -83,6 +83,11 @@ dejan datos ni privilegios modificados.
   `admin` y que el perfil materializado siga siendo `admin` activo de la empresa
   activa. Un admin degradado deja de aprobar y de ver su antiguo equipo de
   inmediato, aunque su JWT aún no haya expirado.
+- Geocerca congelada: al abrir la jornada se guardan latitud, longitud y radio
+  del parque. El cierre acepta la geocerca actual o la foto de entrada, así que
+  mover o redimensionar el parque durante el turno no atrapa al empleado. Un
+  turno nuevo en la ubicación nueva ya no cierra en la anterior y el cliente no
+  puede escribir la foto.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -92,7 +97,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **186 pruebas OK, 0 FAIL**.
+Resultado actual: **194 pruebas OK, 0 FAIL**.
 
 ## Límites
 
