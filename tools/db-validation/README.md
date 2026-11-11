@@ -70,6 +70,10 @@ dejan datos ni privilegios modificados.
   pendiente. Se conserva la fila con `revisado_en` como marca de cierre,
   `revisado_por` queda NULL, el comentario no puede escribirse y el admin ya no
   puede aprobarla ni rechazarla.
+- Retención del historial: las FK de empleado en `jornadas` y
+  `solicitudes_horas_extras` usan `ON DELETE RESTRICT`. Borrar una cuenta con
+  actividad falla y conserva el perfil, las jornadas y las solicitudes; la baja
+  de personal se hace desactivando `public.perfiles.activo`.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -79,7 +83,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **166 pruebas OK, 0 FAIL**.
+Resultado actual: **169 pruebas OK, 0 FAIL**.
 
 ## Límites
 

@@ -1073,6 +1073,89 @@ try {
   await q('rollback');
 }
 
+// Retención del historial: una cuenta con actividad no se puede borrar; se
+// desactiva el perfil para dar de baja sin perder la evidencia.
+group('Retención del historial laboral');
+eq('las FK de empleado usan ON DELETE RESTRICT', await scalar(`
+  select count(*)::int
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname in ('jornadas', 'solicitudes_horas_extras')
+    and c.conname in (
+      'jornadas_empleado_id_fkey',
+      'solicitudes_horas_extras_empleado_id_fkey'
+    )
+    and c.contype = 'f'
+    and c.confdeltype = 'r'
+`), 2);
+
+await q('begin');
+try {
+  const conJornada = randomUUID();
+  await q(
+    `insert into auth.users (id, email, raw_app_meta_data)
+     values ($1, 'historial.jornada@example.com', $2::jsonb)`,
+    [conJornada, appMeta(A.empresa, A.child, 'empleado')],
+  );
+  await q(`
+    insert into public.jornadas (
+      empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+      entrada_lat, entrada_lon, entrada_dentro_geocerca,
+      salida_lat, salida_lon, salida_dentro_geocerca
+    ) values (
+      $1, $2, $3, now() - interval '2 hours', now() - interval '1 hour',
+      14.6350, -90.5070, true, 14.6350, -90.5070, true
+    )
+  `, [A.empresa, conJornada, P.child]);
+
+  await q('savepoint intento_jornada');
+  let errorJornada = null;
+  try {
+    await q('delete from auth.users where id = $1', [conJornada]);
+  } catch (error) {
+    errorJornada = error;
+  }
+  await q('rollback to savepoint intento_jornada');
+  eq('borrar una cuenta con jornadas falla por la FK de jornadas',
+    [errorJornada?.code, errorJornada?.constraint,
+      await scalar('select count(*)::int from public.perfiles where id = $1', [conJornada]),
+      await scalar('select count(*)::int from public.jornadas where empleado_id = $1', [conJornada])],
+    ['23503', 'jornadas_empleado_id_fkey', 1, 1]);
+
+  const conSolicitud = randomUUID();
+  await q(
+    `insert into auth.users (id, email, raw_app_meta_data)
+     values ($1, 'historial.solicitud@example.com', $2::jsonb)`,
+    [conSolicitud, appMeta(A.empresa, A.child, 'empleado')],
+  );
+  await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+    ) values (
+      $1, $2, $3, now() - interval '2 hours', now() - interval '1 hour',
+      'Historial retenido ante el borrado de la cuenta'
+    )
+  `, [A.empresa, conSolicitud, A.child]);
+
+  await q('savepoint intento_solicitud');
+  let errorSolicitud = null;
+  try {
+    await q('delete from auth.users where id = $1', [conSolicitud]);
+  } catch (error) {
+    errorSolicitud = error;
+  }
+  await q('rollback to savepoint intento_solicitud');
+  eq('borrar una cuenta con solicitudes falla por la FK de solicitudes',
+    [errorSolicitud?.code, errorSolicitud?.constraint,
+      await scalar('select count(*)::int from public.perfiles where id = $1', [conSolicitud]),
+      await scalar('select count(*)::int from public.solicitudes_horas_extras where empleado_id = $1', [conSolicitud])],
+    ['23503', 'solicitudes_horas_extras_empleado_id_fkey', 1, 1]);
+} finally {
+  await q('rollback');
+}
+
 eq('empleado solo ve su propio perfil',
   await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
     (await q('select id from public.perfiles')).rows.map((r) => r.id)),
