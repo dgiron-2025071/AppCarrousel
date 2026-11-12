@@ -8,9 +8,15 @@
 // Seguridad:
 //   - La plataforma valida el JWT del solicitante (verify_jwt por defecto).
 //   - Solo un perfil activo con rol `admin` puede invitar.
+//   - La empresa del admin debe seguir activa. La función usa `service_role`,
+//     que ignora RLS: la suspensión de `0013` no aplica sola en esta ruta, así
+//     que se verifica `empresas.activa` de forma explícita.
 //   - El centro destino debe pertenecer a la empresa del admin y estar dentro
 //     de su subárbol jerárquico. El `empresa_id` lo pone la función, no el
 //     cliente.
+//   - Los claims del JWT emitido deben coincidir con el perfil materializado.
+//     Se lee el payload del token, no el registro actual de Auth, para que una
+//     sesión vieja no herede un cambio de alcance.
 //
 // Despliegue:
 //   supabase functions deploy invitar-usuario
@@ -46,9 +52,36 @@ interface CentroDestino {
   ruta: string[] | null;
 }
 
+interface EmpresaSolicitante {
+  activa: boolean;
+}
+
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Lee el payload del access token. La firma ya la validó la plataforma
+// (`verify_jwt`) y `auth.getUser()` confirma que la sesión sigue vigente, así
+// que aquí solo se decodifica para comparar los claims *emitidos*. No se usa
+// `authData.user.app_metadata` porque ese campo refleja el registro actual del
+// usuario, no el token: un admin movido de centro conservaría el alcance nuevo
+// con un JWT viejo.
+function claimsDelToken(authorization: string): Record<string, unknown> | null {
+  const token = authorization.replace(/^Bearer\s+/i, "").trim();
+  const partes = token.split(".");
+  if (partes.length !== 3) return null;
+
+  try {
+    const base64 = partes[1].replace(/-/g, "+").replace(/_/g, "/");
+    const relleno = "=".repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(atob(base64 + relleno));
+    return payload && typeof payload === "object"
+      ? payload as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -146,6 +179,40 @@ Deno.serve(
     const perfil = (perfiles?.[0] ?? null) as PerfilSolicitante | null;
     if (!perfil || perfil.rol !== "admin" || !perfil.activo) {
       return error("Solo un administrador activo puede invitar usuarios.", 403);
+    }
+
+    // El alcance autorizado es el del JWT (`app_metadata`), igual que en la base
+    // de datos (`0017`). Si el perfil fue degradado o movido sin refrescar la
+    // sesión, la función falla cerrada en lugar de ampliar el alcance.
+    const claims = claimsDelToken(autorizacion);
+    if (!claims || claims.sub !== authData.user.id) {
+      return error("Sesión inválida o expirada.", 401);
+    }
+    const appMetadata = (claims.app_metadata ?? {}) as Record<string, unknown>;
+    if (
+      appMetadata.rol !== "admin" ||
+      appMetadata.empresa_id !== perfil.empresa_id ||
+      appMetadata.centro_costo_id !== perfil.centro_costo_id
+    ) {
+      return error(
+        "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
+        403,
+      );
+    }
+
+    // `service_role` ignora RLS: la suspensión de la empresa (0013) no basta.
+    const { data: empresas, error: empresaError } = await admin
+      .from("empresas")
+      .select("activa")
+      .eq("id", perfil.empresa_id)
+      .limit(1);
+
+    if (empresaError) {
+      return error("No se pudo verificar la empresa.", 500);
+    }
+    const empresa = (empresas?.[0] ?? null) as EmpresaSolicitante | null;
+    if (!empresa?.activa) {
+      return error("La empresa está suspendida.", 403);
     }
 
     const { data: centros, error: centroError } = await admin

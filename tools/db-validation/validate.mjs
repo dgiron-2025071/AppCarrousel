@@ -303,6 +303,47 @@ eq('enum de estado de solicitud', await scalar(`
   select enum_range(null::public.estado_solicitud)::text
 `), '{pendiente,aprobada,rechazada,cancelada}');
 
+// Red de seguridad para migraciones futuras: una tabla nueva sin RLS, un grant
+// accidental a anon o un SECURITY DEFINER sin search_path fijo debe fallar el
+// arnés, aunque ninguna prueba funcional lo toque todavía.
+eq('todas las tablas públicas tienen RLS', await scalar(`
+  select count(*)::int from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relkind = 'r'
+    and not c.relrowsecurity
+`), 0);
+eq('anon no tiene escritura en tablas públicas', await scalar(`
+  select count(*)::int
+  from information_schema.role_table_grants
+  where table_schema = 'public'
+    and grantee = 'anon'
+    and privilege_type in ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+`), 0);
+eq('toda función SECURITY DEFINER fija search_path', await scalar(`
+  select count(*)::int
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname in ('public','private')
+    and p.prosecdef
+    and not coalesce(p.proconfig @> array['search_path=""'], false)
+`), 0);
+eq('ninguna función es ejecutable por PUBLIC/anon', await scalar(`
+  select count(*)::int
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname in ('public','private')
+    and (
+      p.proacl is null
+      or exists (
+        select 1
+        from aclexplode(p.proacl) a
+        where a.grantee = 0
+          and a.privilege_type = 'EXECUTE'
+      )
+    )
+`), 0);
+
 // -----------------------------------------------------------------------------
 // Jerarquía
 // -----------------------------------------------------------------------------
@@ -1073,10 +1114,29 @@ try {
   await q('rollback');
 }
 
+// Retirar el alcance debe cortar el acceso de un token ya emitido.
+await q('begin');
+try {
+  const revocable = randomUUID();
+  await q(`insert into auth.users (id, email, raw_app_meta_data) values ($1,'revocable@example.com',$2::jsonb)`,
+    [revocable, appMeta(A.empresa, A.child, 'empleado')]);
+  await q(`update auth.users set raw_app_meta_data = '{}'::jsonb where id = $1`, [revocable]);
+  eq('quitar los claims desactiva el perfil existente',
+    await scalar('select activo from public.perfiles where id = $1', [revocable]), false);
+  await q(`update auth.users set raw_app_meta_data = $1::jsonb where id = $2`,
+    [appMeta(A.empresa, A.grand, 'empleado'), revocable]);
+  eq('restaurar los claims no reactiva una baja',
+    await scalar('select activo from public.perfiles where id = $1', [revocable]), false);
+  eq('restaurar los claims sí actualiza el alcance',
+    await scalar('select centro_costo_id from public.perfiles where id = $1', [revocable]), A.grand);
+} finally {
+  await q('rollback');
+}
+
 // Retención del historial: una cuenta con actividad no se puede borrar; se
 // desactiva el perfil para dar de baja sin perder la evidencia.
 group('Retención del historial laboral');
-eq('las FK de empleado usan ON DELETE RESTRICT', await scalar(`
+eq('las FK de empleado son compuestas y usan ON DELETE RESTRICT', await scalar(`
   select count(*)::int
   from pg_constraint c
   join pg_class t on t.oid = c.conrelid
@@ -1084,11 +1144,12 @@ eq('las FK de empleado usan ON DELETE RESTRICT', await scalar(`
   where n.nspname = 'public'
     and t.relname in ('jornadas', 'solicitudes_horas_extras')
     and c.conname in (
-      'jornadas_empleado_id_fkey',
-      'solicitudes_horas_extras_empleado_id_fkey'
+      'jornadas_empleado_empresa_fkey',
+      'solicitudes_empleado_empresa_fkey'
     )
     and c.contype = 'f'
     and c.confdeltype = 'r'
+    and pg_get_constraintdef(c.oid) like '%(empresa_id, empleado_id)%'
 `), 2);
 
 await q('begin');
@@ -1122,7 +1183,7 @@ try {
     [errorJornada?.code, errorJornada?.constraint,
       await scalar('select count(*)::int from public.perfiles where id = $1', [conJornada]),
       await scalar('select count(*)::int from public.jornadas where empleado_id = $1', [conJornada])],
-    ['23503', 'jornadas_empleado_id_fkey', 1, 1]);
+    ['23503', 'jornadas_empleado_empresa_fkey', 1, 1]);
 
   const conSolicitud = randomUUID();
   await q(
@@ -1151,7 +1212,111 @@ try {
     [errorSolicitud?.code, errorSolicitud?.constraint,
       await scalar('select count(*)::int from public.perfiles where id = $1', [conSolicitud]),
       await scalar('select count(*)::int from public.solicitudes_horas_extras where empleado_id = $1', [conSolicitud])],
-    ['23503', 'solicitudes_horas_extras_empleado_id_fkey', 1, 1]);
+    ['23503', 'solicitudes_empleado_empresa_fkey', 1, 1]);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
+// Integridad cross-tenant y evidencia de revisión
+// -----------------------------------------------------------------------------
+group('Integridad cross-tenant y evidencia de revisión');
+eq('la FK del revisor es compuesta y usa ON DELETE RESTRICT', await scalar(`
+  select count(*)::int
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname = 'solicitudes_horas_extras'
+    and c.conname = 'solicitudes_revisado_por_empresa_fkey'
+    and c.contype = 'f'
+    and c.confdeltype = 'r'
+    and pg_get_constraintdef(c.oid) like '%(empresa_id, revisado_por)%'
+`), 1);
+
+await q('begin');
+try {
+  const revisor = randomUUID();
+  await q(
+    `insert into auth.users (id, email, raw_app_meta_data)
+     values ($1, 'revisor.retenido@example.com', $2::jsonb)`,
+    [revisor, appMeta(A.empresa, A.child, 'admin')],
+  );
+
+  const solicitudRevisada = randomUUID();
+  await q(`
+    insert into public.solicitudes_horas_extras (
+      id, empresa_id, empleado_id, centro_costo_id, inicio, fin,
+      justificacion, estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, $4, now() - interval '2 hours', now() - interval '1 hour',
+      'Evidencia de revisión retenida para auditoría', 'aprobada', $5, now()
+    )
+  `, [solicitudRevisada, A.empresa, U.empA, A.child, revisor]);
+
+  // Un revisor de otra empresa no puede quedar asociado a la solicitud.
+  await q('savepoint revisor_ajeno');
+  let errorRevisor = null;
+  try {
+    await q(`
+      insert into public.solicitudes_horas_extras (
+        empresa_id, empleado_id, centro_costo_id, inicio, fin,
+        justificacion, estado, revisado_por, revisado_en
+      ) values (
+        $1, $2, $3, now() - interval '3 hours', now() - interval '2 hours',
+        'Revisor que pertenece a otra empresa', 'aprobada', $4, now()
+      )
+    `, [A.empresa, U.empA, A.child, U.empB]);
+  } catch (error) {
+    errorRevisor = error;
+  }
+  await q('rollback to savepoint revisor_ajeno');
+  eq('un revisor de otra empresa es rechazado', errorRevisor?.code, '23503');
+
+  // Una jornada no puede apuntar a un empleado de otra empresa.
+  await q('savepoint jornada_cross_tenant');
+  let errorJornada = null;
+  try {
+    await q(`
+      insert into public.jornadas (
+        empresa_id, empleado_id, parque_id, entrada_lat, entrada_lon
+      ) values ($1, $2, $3, 14.6350, -90.5070)
+    `, [A.empresa, U.empB, P.child]);
+  } catch (error) {
+    errorJornada = error;
+  }
+  await q('rollback to savepoint jornada_cross_tenant');
+  eq('una jornada con empleado de otra empresa es rechazada',
+    errorJornada?.code, '23503');
+
+  // Borrar al revisor no puede dejar la solicitud sin evidencia.
+  await q('savepoint borrar_revisor');
+  let errorBorrado = null;
+  try {
+    await q('delete from auth.users where id = $1', [revisor]);
+  } catch (error) {
+    errorBorrado = error;
+  }
+  await q('rollback to savepoint borrar_revisor');
+  eq('borrar al revisor falla y conserva la evidencia',
+    [errorBorrado?.code, errorBorrado?.constraint,
+      await scalar('select revisado_por from public.solicitudes_horas_extras where id = $1', [solicitudRevisada])],
+    ['23503', 'solicitudes_revisado_por_empresa_fkey', revisor]);
+
+  // Tampoco se puede reescribir la empresa de un empleado con historial.
+  await q('savepoint mover_empleado');
+  let errorMover = null;
+  try {
+    await q(
+      'update public.perfiles set empresa_id = $1, centro_costo_id = $2 where id = $3',
+      [B.empresa, B.root, U.empA],
+    );
+  } catch (error) {
+    errorMover = error;
+  }
+  await q('rollback to savepoint mover_empleado');
+  eq('no se mueve de empresa a un empleado con historial',
+    errorMover?.code, '23503');
 } finally {
   await q('rollback');
 }
@@ -1631,9 +1796,316 @@ try {
 }
 
 // -----------------------------------------------------------------------------
+// Cambio de alcance de administradores
+// -----------------------------------------------------------------------------
+group('Cambio de alcance de administradores');
+await q('begin');
+try {
+  // Mover el perfil al centro hermano conserva la empresa y no rompe el
+  // historial, pero el JWT de la prueba sigue apuntando al centro anterior.
+  await q('update public.perfiles set centro_costo_id = $1 where id = $2',
+    [A.sibling, U.gerA]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+
+  eq('un admin con el centro cambiado deja de ser admin con el JWT viejo',
+    await scalar('select private.es_admin()'), false);
+  eq('un admin con el centro cambiado no ve perfiles de su antiguo equipo',
+    (await q('select count(*)::int from public.perfiles where id <> $1', [U.gerA])).rows[0].count,
+    0);
+  eq('un admin con el centro cambiado no aprueba solicitudes de su antiguo equipo',
+    (await q(`update public.solicitudes_horas_extras set estado = 'aprobada' where id = $1`,
+      [S.aPendiente])).rowCount,
+    0);
+
+  // Con el JWT actualizado al centro nuevo recupera el rol.
+  await q('reset role');
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.sibling, 'admin'))]);
+  eq('con el JWT del centro nuevo recupera el rol',
+    await scalar('select private.es_admin()'), true);
+  await q('reset role');
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
+// Coherencia de revisión y solicitudes sin solape
+// -----------------------------------------------------------------------------
+group('Coherencia de revisión y solicitudes sin solape');
+
+eq('la restricción de exclusión por empleado y rango existe', await scalar(`
+  select count(*)::int
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname = 'solicitudes_horas_extras'
+    and c.conname = 'solicitudes_sin_solape'
+    and c.contype = 'x'
+    and pg_get_constraintdef(c.oid) like '%tstzrange(inicio, fin, ''[)''::text)%'
+`), 1);
+
+await expectError('una solicitud aprobada exige revisor',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, revisado_en
+   ) values (
+     $1, $2, $3, now() + interval '30 days', now() + interval '30 days' + interval '1 hour',
+     'Aprobada sin la firma del revisor', 'aprobada', now()
+   )`,
+  [A.empresa, U.empA, A.child], '23514');
+
+await expectError('una solicitud cancelada no conserva revisor',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, revisado_por, revisado_en
+   ) values (
+     $1, $2, $3, now() + interval '31 days', now() + interval '31 days' + interval '1 hour',
+     'Cancelada con un revisor que no participó', 'cancelada', $4, now()
+   )`,
+  [A.empresa, U.empA, A.child, U.gerA], '23514');
+
+await expectError('una solicitud pendiente no nace con comentario del admin',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, comentario_admin
+   ) values (
+     $1, $2, $3, now() + interval '32 days', now() + interval '32 days' + interval '1 hour',
+     'Pendiente con comentario anticipado', 'pendiente', 'comentario fuera de lugar'
+   )`,
+  [A.empresa, U.empA, A.child], '23514');
+
+await q('begin');
+try {
+  const base = { empresa: A.empresa, empleado: U.empGrand, centro: A.grand };
+
+  const primera = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+    ) values (
+      $1, $2, $3, now() + interval '40 days', now() + interval '40 days' + interval '1 hour',
+      'Primera solicitud viva en el rango'
+    )
+  `, [base.empresa, base.empleado, base.centro]);
+  eq('la primera solicitud del rango se crea', primera.rowCount, 1);
+
+  await q('savepoint solape_pendiente');
+  let errorPendiente = null;
+  try {
+    await q(`
+      insert into public.solicitudes_horas_extras (
+        empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+      ) values (
+        $1, $2, $3, now() + interval '40 days' + interval '30 minutes',
+        now() + interval '40 days' + interval '90 minutes',
+        'Solicitud pendiente solapada con la primera'
+      )
+    `, [base.empresa, base.empleado, base.centro]);
+  } catch (error) {
+    errorPendiente = error;
+  }
+  await q('rollback to savepoint solape_pendiente');
+  eq('dos solicitudes pendientes solapadas se rechazan',
+    errorPendiente?.code, '23P01');
+
+  await q('savepoint solape_aprobada');
+  let errorAprobada = null;
+  try {
+    await q(`
+      insert into public.solicitudes_horas_extras (
+        empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion,
+        estado, revisado_por, revisado_en
+      ) values (
+        $1, $2, $3, now() + interval '40 days' + interval '15 minutes',
+        now() + interval '40 days' + interval '45 minutes',
+        'Aprobada solapada con una solicitud viva', 'aprobada', $4, now()
+      )
+    `, [base.empresa, base.empleado, base.centro, U.gerA]);
+  } catch (error) {
+    errorAprobada = error;
+  }
+  await q('rollback to savepoint solape_aprobada');
+  eq('una solicitud aprobada tampoco se solapa con una viva',
+    errorAprobada?.code, '23P01');
+
+  const contigua = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+    ) values (
+      $1, $2, $3, now() + interval '40 days' + interval '1 hour',
+      now() + interval '40 days' + interval '2 hours',
+      'Solicitud contigua sin solape'
+    )
+  `, [base.empresa, base.empleado, base.centro]);
+  eq('dos rangos contiguos no se consideran solape', contigua.rowCount, 1);
+
+  const rechazada = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion,
+      estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, now() + interval '50 days', now() + interval '50 days' + interval '1 hour',
+      'Solicitud rechazada que libera el rango', 'rechazada', $4, now()
+    )
+  `, [base.empresa, base.empleado, base.centro, U.gerA]);
+  eq('una solicitud rechazada se registra', rechazada.rowCount, 1);
+
+  const sobreRechazada = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+    ) values (
+      $1, $2, $3, now() + interval '50 days', now() + interval '50 days' + interval '1 hour',
+      'Solicitud corregida sobre un rango rechazado'
+    )
+  `, [base.empresa, base.empleado, base.centro]);
+  eq('una rechazada libera el rango para reenviar', sobreRechazada.rowCount, 1);
+
+  const cancelada = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion,
+      estado, revisado_en
+    ) values (
+      $1, $2, $3, now() + interval '60 days', now() + interval '60 days' + interval '1 hour',
+      'Solicitud cancelada que libera el rango', 'cancelada', now()
+    )
+  `, [base.empresa, base.empleado, base.centro]);
+  eq('una solicitud cancelada se registra sin revisor', cancelada.rowCount, 1);
+
+  const sobreCancelada = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+    ) values (
+      $1, $2, $3, now() + interval '60 days', now() + interval '60 days' + interval '1 hour',
+      'Solicitud corregida sobre un rango cancelado'
+    )
+  `, [base.empresa, base.empleado, base.centro]);
+  eq('una cancelada libera el rango para reenviar', sobreCancelada.rowCount, 1);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
+// Revisor administrador
+// -----------------------------------------------------------------------------
+group('Revisor administrador');
+
+await expectError('un empleado no puede quedar como revisor',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, revisado_por, revisado_en
+   ) values (
+     $1, $2, $3, now() + interval '70 days', now() + interval '70 days' + interval '1 hour',
+     'Revisión firmada por un empleado', 'aprobada', $4, now()
+   )`,
+  [A.empresa, U.empA, A.child, U.empGrand], '23514');
+
+await expectError('el especialista no puede figurar como su propio revisor',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, revisado_por, revisado_en
+   ) values (
+     $1, $2, $3, now() + interval '71 days', now() + interval '71 days' + interval '1 hour',
+     'Autoaprobación fuera de RLS', 'aprobada', $2, now()
+   )`,
+  [A.empresa, U.empA, A.child], '23514');
+
+await q('begin');
+try {
+  const firmada = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin,
+      justificacion, estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, now() + interval '72 days', now() + interval '72 days' + interval '1 hour',
+      'Revisión firmada por un administrador', 'aprobada', $4, now()
+    )
+  `, [A.empresa, U.empA, A.child, U.gerA]);
+  eq('un administrador de la empresa sí puede firmar la revisión',
+    firmada.rowCount, 1);
+} finally {
+  await q('rollback');
+}
+
+await q('begin');
+try {
+  await q('update public.perfiles set activo = false where id = $1', [U.gerRoot]);
+
+  await q('savepoint revisor_inactivo');
+  let errorInactivo = null;
+  try {
+    await q(`
+      insert into public.solicitudes_horas_extras (
+        empresa_id, empleado_id, centro_costo_id, inicio, fin,
+        justificacion, estado, revisado_por, revisado_en
+      ) values (
+        $1, $2, $3, now() + interval '73 days', now() + interval '73 days' + interval '1 hour',
+        'Revisión firmada por un administrador inactivo', 'aprobada', $4, now()
+      )
+    `, [A.empresa, U.empA, A.child, U.gerRoot]);
+  } catch (error) {
+    errorInactivo = error;
+  }
+  await q('rollback to savepoint revisor_inactivo');
+  eq('un administrador inactivo no puede firmar una revisión nueva',
+    errorInactivo?.code, '23514');
+
+  eq('desactivar al revisor no invalida la revisión que ya firmó',
+    await scalar(`
+      select count(*)::int
+      from public.solicitudes_horas_extras
+      where revisado_por = $1
+        and estado in ('aprobada', 'rechazada')
+    `, [U.gerRoot]),
+    1);
+} finally {
+  await q('rollback');
+}
+
+await q('begin');
+try {
+  const reasignable = (await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin,
+      justificacion, estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, now() + interval '80 days', now() + interval '80 days' + interval '1 hour',
+      'Solicitud reasignable con un revisor válido', 'aprobada', $4, now()
+    ) returning id
+  `, [A.empresa, U.empA, A.child, U.gerA])).rows[0].id;
+
+  await q('savepoint reasignacion_invalida');
+  let errorAutoRevision = null;
+  try {
+    await q(
+      'update public.solicitudes_horas_extras set empleado_id = $1 where id = $2',
+      [U.gerA, reasignable],
+    );
+  } catch (error) {
+    errorAutoRevision = error;
+  }
+  await q('rollback to savepoint reasignacion_invalida');
+  eq('reasignar la solicitud al revisor se rechaza',
+    errorAutoRevision?.code, '23514');
+
+  eq('reasignar a otro especialista revalida al revisor',
+    (await q(
+      'update public.solicitudes_horas_extras set empleado_id = $1 where id = $2',
+      [U.empGrand, reasignable],
+    )).rowCount,
+    1);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
 group('Fail-closed y anon');
+
 eq('sin app_metadata no hay acceso a empresas',
   await withRole('authenticated', { sub: U.empA }, async () =>
     (await q('select count(*)::int from public.empresas')).rows[0].count),

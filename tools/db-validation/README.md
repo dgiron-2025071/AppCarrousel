@@ -43,6 +43,11 @@ dejan datos ni privilegios modificados.
 ## Cobertura
 
 - Estructura: tablas, extensión `citext`/`pgcrypto`, RLS y número de políticas.
+- Invariantes estructurales: toda tabla pública tiene RLS, `anon` no tiene
+  escritura, toda función `SECURITY DEFINER` fija `search_path` vacío y ninguna
+  función de `public`/`private` queda ejecutable por `PUBLIC`/`anon`, para que
+  una migración futura no abra un hueco sin que las pruebas funcionales lo
+  detecten.
 - Jerarquía: cálculo de `ruta`, FK cross-tenant, anti-ciclos, códigos únicos
   por empresa y límite de 32 niveles.
 - Propagación de `ruta` al subárbol al mover un centro.
@@ -81,23 +86,39 @@ dejan datos ni privilegios modificados.
   se ve afectada.
 - Degradación de administradores: `private.es_admin()` exige que el JWT diga
   `admin` y que el perfil materializado siga siendo `admin` activo de la empresa
-  activa. Un admin degradado deja de aprobar y de ver su antiguo equipo de
-  inmediato, aunque su JWT aún no haya expirado.
+  activa y del mismo centro. Un admin degradado o movido de subárbol deja de
+  aprobar y de ver su antiguo equipo de inmediato, aunque su JWT aún no haya
+  expirado; al refrescar la sesión con el centro nuevo recupera el rol.
 - Geocerca congelada: al abrir la jornada se guardan latitud, longitud y radio
   del parque. El cierre acepta la geocerca actual o la foto de entrada, así que
   mover o redimensionar el parque durante el turno no atrapa al empleado. Un
   turno nuevo en la ubicación nueva ya no cierra en la anterior y el cliente no
   puede escribir la foto.
+- Integridad cross-tenant: las FK de empleado en `jornadas` y
+  `solicitudes_horas_extras` y la del revisor incluyen `empresa_id`. No se puede
+  referenciar un perfil de otra empresa, borrar al revisor ni mover de empresa a
+  un empleado con historial.
+- Coherencia y solape de horas extras: pendiente no tiene revisor ni comentario;
+  cancelada cierra sin revisor; aprobada y rechazada exigen la firma. Una
+  restricción de exclusión GiST impide dos solicitudes vivas del mismo
+  especialista con rangos solapados; rechazadas y canceladas liberan el rango y
+  los rangos contiguos no cuentan como solape. Un trigger exige que el revisor
+  sea un `admin` activo de la misma empresa y distinto del especialista, incluso
+  cuando la escritura llega con `service_role`; desactivarlo no invalida las
+  revisiones que ya firmó. Cambiar el especialista o la empresa de una solicitud
+  vuelve a ejecutar la validación del revisor.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
-  administrativo de rol y borrado en cascada.
+  administrativo de rol y borrado en cascada. Si una actualización de
+  `auth.users` deja los claims incompletos, el perfil existente se desactiva;
+  restaurar los claims actualiza el alcance pero no reactiva una baja.
 - No autoelevación: `authenticated` no puede escribir `rol`, `empresa_id`,
   `empleado_id`, `centro_costo_id`, `ruta`, `actualizado_por` ni `auth.users`.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **194 pruebas OK, 0 FAIL**.
+Resultado actual: **229 pruebas OK, 0 FAIL**.
 
 ## Límites
 
