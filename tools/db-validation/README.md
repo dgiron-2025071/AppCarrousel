@@ -98,8 +98,9 @@ dejan datos ni privilegios modificados.
   restricción de exclusión GiST impide dos solicitudes vivas del mismo
   especialista con rangos solapados; rechazadas y canceladas liberan el rango y
   los rangos contiguos no cuentan como solape. Un trigger exige que el revisor
-  sea `admin` de la misma empresa y distinto del especialista, incluso cuando la
-  escritura llega con `service_role`.
+  sea un `admin` activo de la misma empresa y distinto del especialista, incluso
+  cuando la escritura llega con `service_role`; desactivarlo no invalida las
+  revisiones que ya firmó.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -109,7 +110,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **218 pruebas OK, 0 FAIL**.
+Resultado actual: **220 pruebas OK, 0 FAIL**.
 
 ## Límites
 
