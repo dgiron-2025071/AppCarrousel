@@ -2005,6 +2005,42 @@ try {
   await q('rollback');
 }
 
+await q('begin');
+try {
+  const reasignable = (await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin,
+      justificacion, estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, now() + interval '80 days', now() + interval '80 days' + interval '1 hour',
+      'Solicitud reasignable con un revisor válido', 'aprobada', $4, now()
+    ) returning id
+  `, [A.empresa, U.empA, A.child, U.gerA])).rows[0].id;
+
+  await q('savepoint reasignacion_invalida');
+  let errorAutoRevision = null;
+  try {
+    await q(
+      'update public.solicitudes_horas_extras set empleado_id = $1 where id = $2',
+      [U.gerA, reasignable],
+    );
+  } catch (error) {
+    errorAutoRevision = error;
+  }
+  await q('rollback to savepoint reasignacion_invalida');
+  eq('reasignar la solicitud al revisor se rechaza',
+    errorAutoRevision?.code, '23514');
+
+  eq('reasignar a otro especialista revalida al revisor',
+    (await q(
+      'update public.solicitudes_horas_extras set empleado_id = $1 where id = $2',
+      [U.empGrand, reasignable],
+    )).rowCount,
+    1);
+} finally {
+  await q('rollback');
+}
+
 // -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
