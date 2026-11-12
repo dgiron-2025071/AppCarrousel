@@ -100,7 +100,8 @@ dejan datos ni privilegios modificados.
   los rangos contiguos no cuentan como solape. Un trigger exige que el revisor
   sea un `admin` activo de la misma empresa y distinto del especialista, incluso
   cuando la escritura llega con `service_role`; desactivarlo no invalida las
-  revisiones que ya firmó.
+  revisiones que ya firmó. Cambiar el especialista o la empresa de una solicitud
+  vuelve a ejecutar la validación del revisor.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -110,7 +111,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **220 pruebas OK, 0 FAIL**.
+Resultado actual: **222 pruebas OK, 0 FAIL**.
 
 ## Límites
 
