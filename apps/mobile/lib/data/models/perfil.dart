@@ -6,6 +6,7 @@ class Perfil {
     required this.rol,
     required this.nombreCompleto,
     this.centroNombre,
+    this.puesto,
   });
 
   final String id;
@@ -14,6 +15,7 @@ class Perfil {
   final String rol;
   final String nombreCompleto;
   final String? centroNombre;
+  final String? puesto;
 
   bool get esAdmin => rol == 'admin';
 
@@ -30,6 +32,11 @@ class Perfil {
     if (centro is Map<String, dynamic>) {
       centroNombre = centro['nombre'] as String?;
     }
+    String? puesto;
+    final puestoMap = map['puestos'];
+    if (puestoMap is Map<String, dynamic>) {
+      puesto = puestoMap['nombre'] as String?;
+    }
     return Perfil(
       id: map['id'] as String,
       empresaId: map['empresa_id'] as String,
@@ -37,6 +44,7 @@ class Perfil {
       rol: map['rol'] as String,
       nombreCompleto: map['nombre_completo'] as String,
       centroNombre: centroNombre,
+      puesto: puesto,
     );
   }
 }

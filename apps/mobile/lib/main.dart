@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/config/env.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/tema_controller.dart';
 import 'features/shell/root_gate.dart';
 
 Future<void> main() async {
@@ -37,17 +38,19 @@ Future<void> main() async {
   );
 }
 
-class CarrouselApp extends StatelessWidget {
+class CarrouselApp extends ConsumerWidget {
   const CarrouselApp({super.key, this.initError});
 
   final Object? initError;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'Carrousel',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ref.watch(temaProvider),
       locale: const Locale('es'),
       supportedLocales: const [Locale('es'), Locale('en')],
       localizationsDelegates: const [

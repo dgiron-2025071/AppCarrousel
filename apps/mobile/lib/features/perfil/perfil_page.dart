@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/perfil.dart';
 import '../../providers/app_providers.dart';
+import '../admin/equipo_page.dart';
+import '../admin/lugares_page.dart';
 import '../admin/invitar_usuario_page.dart';
 import '../auth/auth_controller.dart';
 import '../auth/reset_password_page.dart';
@@ -31,9 +33,7 @@ class PerfilPage extends ConsumerWidget {
       context: context,
       builder: (dialogo) => AlertDialog(
         title: const Text('Cerrar sesión'),
-        content: const Text(
-          '¿Quieres salir de Carrousel en este dispositivo?',
-        ),
+        content: const Text('¿Quieres salir de Carrousel en este dispositivo?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogo).pop(false),
@@ -123,6 +123,12 @@ class PerfilPage extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 18),
+        if (perfil.puesto != null)
+          _Dato(
+            icono: Icons.badge_outlined,
+            etiqueta: 'Puesto',
+            valor: perfil.puesto!,
+          ),
         _Dato(
           icono: Icons.attractions_outlined,
           etiqueta: 'Centro de costo',
@@ -160,11 +166,23 @@ class PerfilPage extends ConsumerWidget {
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const InvitarUsuarioPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const InvitarUsuarioPage()),
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          _OpcionAdmin(
+            icono: Icons.edit_calendar_rounded,
+            titulo: 'Horarios del equipo',
+            subtitulo: 'Define días, horas y parque de cada empleado.',
+            destino: const EquipoPage(),
+          ),
+          const SizedBox(height: 10),
+          _OpcionAdmin(
+            icono: Icons.radar_rounded,
+            titulo: 'Lugares y geocercas',
+            subtitulo: 'Crea, edita o elimina lugares y su radio de marcaje.',
+            destino: const LugaresPage(),
           ),
         ],
         const SizedBox(height: 18),
@@ -193,9 +211,7 @@ class PerfilPage extends ConsumerWidget {
             ),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const ResetPasswordPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const ResetPasswordPage()),
             ),
           ),
         ),
@@ -296,6 +312,42 @@ class _Dato extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _OpcionAdmin extends StatelessWidget {
+  const _OpcionAdmin({
+    required this.icono,
+    required this.titulo,
+    required this.subtitulo,
+    required this.destino,
+  });
+
+  final IconData icono;
+  final String titulo;
+  final String subtitulo;
+  final Widget destino;
+
+  @override
+  Widget build(BuildContext context) {
+    final colores = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colores.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colores.outlineVariant, width: 0.7),
+      ),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        leading: Icon(icono),
+        title: Text(titulo),
+        subtitle: Text(subtitulo),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => destino),
+        ),
       ),
     );
   }

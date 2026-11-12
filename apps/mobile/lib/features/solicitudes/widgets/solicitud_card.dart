@@ -123,7 +123,11 @@ class SolicitudCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       mostrarEmpleado
-                          ? detalle.centroNombre
+                          ? [
+                              if (detalle.empleadoPuesto != null)
+                                detalle.empleadoPuesto!,
+                              detalle.centroNombre,
+                            ].join(' · ')
                           : formatearFecha(solicitud.inicio),
                       style: TextStyle(
                         fontSize: 12,
@@ -172,7 +176,7 @@ class SolicitudCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Justificación',
+            'Actividad realizada',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -182,6 +186,28 @@ class SolicitudCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(solicitud.justificacion),
+          if (solicitud.autorizadorNombre != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  Icons.verified_user_outlined,
+                  size: 16,
+                  color: colores.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Autoriza: ${solicitud.autorizadorNombre}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colores.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (solicitud.comentarioAdmin != null &&
               solicitud.comentarioAdmin!.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -227,16 +253,10 @@ class SolicitudCard extends StatelessWidget {
               solicitud.estado == EstadoSolicitud.cancelada
                   ? 'Retirada ${formatearFechaHora(solicitud.revisadoEn!)}'
                   : 'Revisada ${formatearFechaHora(solicitud.revisadoEn!)}',
-              style: TextStyle(
-                fontSize: 11,
-                color: colores.onSurfaceVariant,
-              ),
+              style: TextStyle(fontSize: 11, color: colores.onSurfaceVariant),
             ),
           ],
-          if (acciones != null) ...[
-            const SizedBox(height: 14),
-            acciones!,
-          ],
+          if (acciones != null) ...[const SizedBox(height: 14), acciones!],
         ],
       ),
     );

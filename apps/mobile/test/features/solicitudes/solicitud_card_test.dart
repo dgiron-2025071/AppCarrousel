@@ -26,9 +26,7 @@ SolicitudDetalle detalleCancelada() {
 Future<void> mostrar(WidgetTester tester, Widget widget) {
   return tester.pumpWidget(
     MaterialApp(
-      home: Scaffold(
-        body: SingleChildScrollView(child: widget),
-      ),
+      home: Scaffold(body: SingleChildScrollView(child: widget)),
     ),
   );
 }
@@ -47,8 +45,9 @@ void main() {
     expect(find.text('Revisada'), findsNothing);
   });
 
-  testWidgets('la tarjeta muestra el comentario del admin al rechazar',
-      (tester) async {
+  testWidgets('la tarjeta muestra el comentario del admin al rechazar', (
+    tester,
+  ) async {
     final detalle = detalleCancelada();
     final rechazada = SolicitudDetalle(
       solicitud: SolicitudHorasExtras(
@@ -74,5 +73,36 @@ void main() {
     expect(find.text('Rechazada'), findsOneWidget);
     expect(find.text('Comentario del administrador'), findsOneWidget);
     expect(find.textContaining('Revisada'), findsOneWidget);
+  });
+
+  testWidgets('muestra puesto, actividad realizada y quién autoriza', (
+    tester,
+  ) async {
+    final pendiente = SolicitudDetalle(
+      solicitud: SolicitudHorasExtras(
+        id: 's3',
+        empresaId: 'e1',
+        empleadoId: 'u1',
+        centroCostoId: 'c1',
+        inicio: DateTime(2026, 11, 10, 18),
+        fin: DateTime(2026, 11, 10, 20),
+        justificacion: 'Cambio de bandas en la rueda',
+        estado: EstadoSolicitud.pendiente,
+        creadoEn: DateTime(2026, 11, 10, 21),
+        autorizadorNombre: 'Jefe de Mantenimiento',
+      ),
+      empleadoNombre: 'Francisco Choc',
+      empleadoPuesto: 'Técnico',
+      centroNombre: '057.01 · Andaria Kiddies',
+    );
+
+    await mostrar(
+      tester,
+      SolicitudCard(detalle: pendiente, mostrarEmpleado: true),
+    );
+
+    expect(find.text('Técnico · 057.01 · Andaria Kiddies'), findsOneWidget);
+    expect(find.text('Actividad realizada'), findsOneWidget);
+    expect(find.text('Autoriza: Jefe de Mantenimiento'), findsOneWidget);
   });
 }

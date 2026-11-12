@@ -1,0 +1,13 @@
+{
+  "name": "@appcarrousel/importar-ceco",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Normaliza el catálogo de centros de costo y genera SQL con su jerarquía.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

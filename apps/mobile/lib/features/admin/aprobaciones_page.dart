@@ -7,6 +7,7 @@ import '../../core/widgets/estado_widgets.dart';
 import '../../data/models/solicitud_horas_extras.dart';
 import '../../providers/app_providers.dart';
 import '../solicitudes/widgets/solicitud_card.dart';
+import 'exportar_reporte.dart';
 import 'invitar_usuario_page.dart';
 
 /// Bandeja de aprobación del administrador.
@@ -114,9 +115,8 @@ class AprobacionesPage extends ConsumerWidget {
         );
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensajeDeError(error))),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(mensajeDeError(error))));
     }
   }
 
@@ -187,20 +187,31 @@ class AprobacionesPage extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const InvitarUsuarioPage(),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const InvitarUsuarioPage(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                      label: const Text('Invitar'),
+                    ),
                   ),
-                ),
-                icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: const Text('Invitar usuario'),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => exportarReporteHorasExtras(context, ref),
+                      icon: const Icon(Icons.download_rounded),
+                      label: const Text('Reporte'),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 18),
-              _Seccion(
-                titulo: 'Pendientes',
-                contador: pendientes.length,
-              ),
+              _Seccion(titulo: 'Pendientes', contador: pendientes.length),
               if (pendientes.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 18),
