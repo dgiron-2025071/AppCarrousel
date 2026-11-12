@@ -11,7 +11,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
 | Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`-`0021` implementadas y validadas |
-| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 27 pruebas de integración |
+| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 31 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
 | Distribución Android | APK directo | `flutter build apk --debug` validado |
@@ -65,7 +65,7 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **222 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
-- [x] **27 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
+- [x] **31 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
 - [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
 - [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
 
@@ -87,7 +87,7 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - comprueba que el centro destino esté en su subárbol (`ruta`) y en su empresa;
 - invita por correo, escribe `app_metadata` con `service_role` y revierte el usuario si falla la asignación.
 
-El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 27 pruebas de integración contra un Supabase falso local (sesión, perfil, claims vigentes, empresa activa, jerarquía, validaciones, invitación y rollback); su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
+El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 31 pruebas de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, invitación y rollback); su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
 
 ## Aplicación móvil
 
@@ -159,7 +159,7 @@ npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
 npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 ```
 
-Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgREST y ejecutan la función en un puerto libre. Cubren CORS, sesión, perfil, claims vigentes, validaciones del cuerpo, empresa y subárbol, invitación de empleado/admin, correo duplicado, error de envío y rollback al fallar `app_metadata`. Resultado actual: **27 pruebas OK, 0 fallos**.
+Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgREST y ejecutan la función en un puerto libre. Cubren CORS, sesión, perfil, claims del token, validaciones del cuerpo, empresa y subárbol, invitación de empleado/admin, correo duplicado, error de envío y rollback al fallar `app_metadata`. Resultado actual: **31 pruebas OK, 0 fallos**.
 
 ## Historial de cambios
 
@@ -203,7 +203,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-12 | Migración `0019` — la revisión solo la firma un admin | `dgiron-2025071` | [#46](https://github.com/dgiron-2025071/AppCarrousel/pull/46) | Mergeado a `develop` | 218 pruebas OK |
 | 2026-11-12 | Migración `0020` — la revisión exige un admin activo | `dgiron-2025071` | [#47](https://github.com/dgiron-2025071/AppCarrousel/pull/47) | Mergeado a `develop` | 220 pruebas OK |
 | 2026-11-12 | Migración `0021` — revalidación del revisor al reasignar | `dgiron-2025071` | [#48](https://github.com/dgiron-2025071/AppCarrousel/pull/48) | Mergeado a `develop` | 222 pruebas OK |
-| 2026-11-12 | Edge Function `invitar-usuario` — claims vigentes del administrador | `dgiron-2025071` | [#49](https://github.com/dgiron-2025071/AppCarrousel/pull/49) | Mergeado a `develop` | 27 pasos Deno OK |
+| 2026-11-12 | Edge Function `invitar-usuario` - claims vigentes del administrador | `dgiron-2025071` | [#49](https://github.com/dgiron-2025071/AppCarrousel/pull/49) | Mergeado a `develop` | 27 pasos Deno OK |
+| 2026-11-12 | Edge Function `invitar-usuario` - claims del token, no del registro actual | `dgiron-2025071` | [#50](https://github.com/dgiron-2025071/AppCarrousel/pull/50) | Mergeado a `develop` | 31 pasos Deno OK |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -277,6 +278,7 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 - Las políticas RLS y los grants se revisan antes de cada merge.
 - La baja de personal se hace desactivando `public.perfiles.activo`, no borrando la cuenta: las FK con `ON DELETE RESTRICT` impiden perder jornadas, solicitudes y la evidencia de quién revisó.
 - Desactivar `public.empresas.activa` corta de inmediato todo el tenant: `current_empresa_id()` devuelve NULL y las políticas fallan cerradas. La Edge Function de invitación usa `service_role` (ignora RLS), así que verifica la empresa activa de forma explícita antes de invitar.
+- La Edge Function de invitación compara el `app_metadata` del JWT emitido con el perfil materializado, no con el registro actual de Auth: un token viejo no hereda un cambio de alcance posterior y se rechaza hasta que el administrador vuelva a iniciar sesión.
 - Degradar, desactivar o mover de subárbol a un administrador surte efecto de inmediato: `es_admin()` cruza el JWT con el rol, la empresa y el centro del perfil materializado, sin esperar a que expire la sesión.
 - La geocerca queda fotografiada al abrir la jornada: mover o redimensionar el parque durante el turno no impide que el empleado cierre donde entró.
 - Jornadas y solicitudes referencian al empleado con su `empresa_id`: una fila no puede quedar apuntando a un perfil de otra empresa, y una transferencia entre empresas exige desactivar la cuenta y crear una nueva.

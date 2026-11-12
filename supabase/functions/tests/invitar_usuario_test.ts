@@ -15,6 +15,7 @@
 // =============================================================================
 
 const ADMIN_ID = "11111111-1111-4111-8111-111111111111";
+const OTRO_ID = "99999999-9999-4999-8999-999999999999";
 const EMPRESA_ID = "22222222-2222-4222-8222-222222222222";
 const EMPRESA_OTRA = "33333333-3333-4333-8333-333333333333";
 const CENTRO_ADMIN = "44444444-4444-4444-8444-444444444444";
@@ -55,6 +56,7 @@ interface PeticionRegistrada {
 interface EstadoFalso {
   sesionValida: boolean;
   appMetadata: Record<string, unknown>;
+  appMetadataUsuario: Record<string, unknown>;
   perfil: PerfilFalso | null;
   perfilError: boolean;
   empresa: EmpresaFalso | null;
@@ -79,6 +81,13 @@ function estadoInicial(): EstadoFalso {
   return {
     sesionValida: true,
     appMetadata: {
+      empresa_id: EMPRESA_ID,
+      centro_costo_id: CENTRO_ADMIN,
+      rol: "admin",
+    },
+    // Registro actual del usuario en Auth. Puede diferir de los claims del
+    // token cuando la sesión quedó vieja; la función debe usar el token.
+    appMetadataUsuario: {
       empresa_id: EMPRESA_ID,
       centro_costo_id: CENTRO_ADMIN,
       rol: "admin",
@@ -115,6 +124,26 @@ function responder(body: unknown, status = 200): Response {
   });
 }
 
+function base64url(texto: string): string {
+  return btoa(texto)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function jwtFalso(
+  appMetadata: Record<string, unknown>,
+  sub = ADMIN_ID,
+): string {
+  const cabecera = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = base64url(JSON.stringify({
+    sub,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    app_metadata: appMetadata,
+  }));
+  return `${cabecera}.${payload}.firma-falsa`;
+}
+
 async function manejador(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const body = await req.text();
@@ -132,7 +161,7 @@ async function manejador(req: Request): Promise<Response> {
     return responder({
       id: ADMIN_ID,
       email: "admin@empresa.com",
-      app_metadata: estado.appMetadata,
+      app_metadata: estado.appMetadataUsuario,
     });
   }
 
@@ -330,7 +359,8 @@ async function invocar(
     "Content-Type": "application/json",
   };
   if (opciones.authorization !== null) {
-    headers.Authorization = opciones.authorization ?? "Bearer admin-token";
+    headers.Authorization = opciones.authorization ??
+      `Bearer ${jwtFalso(estado.appMetadata)}`;
   }
   const body = opciones.rawBody ??
     (opciones.body === undefined ? undefined : JSON.stringify(opciones.body));
@@ -476,6 +506,58 @@ Deno.test({
             "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
         });
       });
+
+      await t.step("token sin forma de JWT", async () => {
+        estado = estadoInicial();
+        const res = await invocar(funcion.base, {
+          authorization: "Bearer admin-token",
+          body: CUERPO_VALIDO,
+        });
+        assertEquals(res.status, 401);
+        assertEquals(res.json, { error: "Sesión inválida o expirada." });
+      });
+
+      await t.step("token emitido para otro usuario", async () => {
+        estado = estadoInicial();
+        const res = await invocar(funcion.base, {
+          authorization: `Bearer ${jwtFalso(estado.appMetadata, OTRO_ID)}`,
+          body: CUERPO_VALIDO,
+        });
+        assertEquals(res.status, 401);
+        assertEquals(res.json, { error: "Sesión inválida o expirada." });
+      });
+
+      await t.step(
+        "usa los claims del token, no el registro actual",
+        async () => {
+          estado = estadoInicial();
+          // El registro actual dice que el admin está en su centro, pero el token
+          // emitido conserva otro alcance: debe mandar el token.
+          estado.appMetadata = {
+            ...estado.appMetadata,
+            centro_costo_id: CENTRO_HIJO,
+          };
+          const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+          assertEquals(res.status, 403);
+          assertEquals(res.json, {
+            error:
+              "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
+          });
+        },
+      );
+
+      await t.step(
+        "un registro actual desalineado no invalida el token",
+        async () => {
+          estado = estadoInicial();
+          estado.appMetadataUsuario = {
+            ...estado.appMetadataUsuario,
+            centro_costo_id: CENTRO_HIJO,
+          };
+          const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+          assertEquals(res.status, 201);
+        },
+      );
 
       await t.step("error al consultar el perfil", async () => {
         estado = estadoInicial();
