@@ -8,6 +8,9 @@
 // Seguridad:
 //   - La plataforma valida el JWT del solicitante (verify_jwt por defecto).
 //   - Solo un perfil activo con rol `admin` puede invitar.
+//   - La empresa del admin debe seguir activa. La función usa `service_role`,
+//     que ignora RLS: la suspensión de `0013` no aplica sola en esta ruta, así
+//     que se verifica `empresas.activa` de forma explícita.
 //   - El centro destino debe pertenecer a la empresa del admin y estar dentro
 //     de su subárbol jerárquico. El `empresa_id` lo pone la función, no el
 //     cliente.
@@ -44,6 +47,10 @@ interface CentroDestino {
   id: string;
   empresa_id: string;
   ruta: string[] | null;
+}
+
+interface EmpresaSolicitante {
+  activa: boolean;
 }
 
 const UUID =
@@ -146,6 +153,21 @@ Deno.serve(
     const perfil = (perfiles?.[0] ?? null) as PerfilSolicitante | null;
     if (!perfil || perfil.rol !== "admin" || !perfil.activo) {
       return error("Solo un administrador activo puede invitar usuarios.", 403);
+    }
+
+    // `service_role` ignora RLS: la suspensión de la empresa (0013) no basta.
+    const { data: empresas, error: empresaError } = await admin
+      .from("empresas")
+      .select("activa")
+      .eq("id", perfil.empresa_id)
+      .limit(1);
+
+    if (empresaError) {
+      return error("No se pudo verificar la empresa.", 500);
+    }
+    const empresa = (empresas?.[0] ?? null) as EmpresaSolicitante | null;
+    if (!empresa?.activa) {
+      return error("La empresa está suspendida.", 403);
     }
 
     const { data: centros, error: centroError } = await admin
