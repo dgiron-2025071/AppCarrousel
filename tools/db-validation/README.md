@@ -105,13 +105,15 @@ dejan datos ni privilegios modificados.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
-  administrativo de rol y borrado en cascada.
+  administrativo de rol y borrado en cascada. Si una actualización de
+  `auth.users` deja los claims incompletos, el perfil existente se desactiva;
+  restaurar los claims actualiza el alcance pero no reactiva una baja.
 - No autoelevación: `authenticated` no puede escribir `rol`, `empresa_id`,
   `empleado_id`, `centro_costo_id`, `ruta`, `actualizado_por` ni `auth.users`.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **222 pruebas OK, 0 FAIL**.
+Resultado actual: **225 pruebas OK, 0 FAIL**.
 
 ## Límites
 
