@@ -54,6 +54,7 @@ interface PeticionRegistrada {
 
 interface EstadoFalso {
   sesionValida: boolean;
+  appMetadata: Record<string, unknown>;
   perfil: PerfilFalso | null;
   perfilError: boolean;
   empresa: EmpresaFalso | null;
@@ -77,6 +78,11 @@ const CUERPO_VALIDO = {
 function estadoInicial(): EstadoFalso {
   return {
     sesionValida: true,
+    appMetadata: {
+      empresa_id: EMPRESA_ID,
+      centro_costo_id: CENTRO_ADMIN,
+      rol: "admin",
+    },
     perfil: {
       empresa_id: EMPRESA_ID,
       centro_costo_id: CENTRO_ADMIN,
@@ -123,7 +129,11 @@ async function manejador(req: Request): Promise<Response> {
     if (!estado.sesionValida) {
       return responder({ message: "invalid JWT: token is expired" }, 401);
     }
-    return responder({ id: ADMIN_ID, email: "admin@empresa.com" });
+    return responder({
+      id: ADMIN_ID,
+      email: "admin@empresa.com",
+      app_metadata: estado.appMetadata,
+    });
   }
 
   if (url.pathname === "/rest/v1/perfiles") {
@@ -418,6 +428,52 @@ Deno.test({
         assertEquals(res.status, 403);
         assertEquals(res.json, {
           error: "Solo un administrador activo puede invitar usuarios.",
+        });
+      });
+
+      await t.step("JWT sin rol admin", async () => {
+        estado = estadoInicial();
+        estado.appMetadata = {
+          ...estado.appMetadata,
+          rol: "empleado",
+        };
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 403);
+        assertEquals(res.json, {
+          error:
+            "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
+        });
+        assertEquals(
+          estado.peticiones.some((p) => p.pathname === "/auth/v1/invite"),
+          false,
+        );
+      });
+
+      await t.step("JWT de otra empresa", async () => {
+        estado = estadoInicial();
+        estado.appMetadata = {
+          ...estado.appMetadata,
+          empresa_id: EMPRESA_OTRA,
+        };
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 403);
+        assertEquals(res.json, {
+          error:
+            "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
+        });
+      });
+
+      await t.step("JWT con otro centro de costo", async () => {
+        estado = estadoInicial();
+        estado.appMetadata = {
+          ...estado.appMetadata,
+          centro_costo_id: CENTRO_HIJO,
+        };
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 403);
+        assertEquals(res.json, {
+          error:
+            "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
         });
       });
 
