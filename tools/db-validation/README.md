@@ -43,6 +43,10 @@ dejan datos ni privilegios modificados.
 ## Cobertura
 
 - Estructura: tablas, extensión `citext`/`pgcrypto`, RLS y número de políticas.
+- Invariantes estructurales: toda tabla pública tiene RLS, `anon` no tiene
+  escritura y toda función `SECURITY DEFINER` fija `search_path` vacío, para que
+  una migración futura no abra un hueco sin que las pruebas funcionales lo
+  detecten.
 - Jerarquía: cálculo de `ruta`, FK cross-tenant, anti-ciclos, códigos únicos
   por empresa y límite de 32 niveles.
 - Propagación de `ruta` al subárbol al mover un centro.
@@ -113,7 +117,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **225 pruebas OK, 0 FAIL**.
+Resultado actual: **228 pruebas OK, 0 FAIL**.
 
 ## Límites
 

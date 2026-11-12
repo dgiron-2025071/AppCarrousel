@@ -303,6 +303,32 @@ eq('enum de estado de solicitud', await scalar(`
   select enum_range(null::public.estado_solicitud)::text
 `), '{pendiente,aprobada,rechazada,cancelada}');
 
+// Red de seguridad para migraciones futuras: una tabla nueva sin RLS, un grant
+// accidental a anon o un SECURITY DEFINER sin search_path fijo debe fallar el
+// arnés, aunque ninguna prueba funcional lo toque todavía.
+eq('todas las tablas públicas tienen RLS', await scalar(`
+  select count(*)::int from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relkind = 'r'
+    and not c.relrowsecurity
+`), 0);
+eq('anon no tiene escritura en tablas públicas', await scalar(`
+  select count(*)::int
+  from information_schema.role_table_grants
+  where table_schema = 'public'
+    and grantee = 'anon'
+    and privilege_type in ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+`), 0);
+eq('toda función SECURITY DEFINER fija search_path', await scalar(`
+  select count(*)::int
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname in ('public','private')
+    and p.prosecdef
+    and not coalesce(p.proconfig @> array['search_path=""'], false)
+`), 0);
+
 // -----------------------------------------------------------------------------
 // Jerarquía
 // -----------------------------------------------------------------------------
