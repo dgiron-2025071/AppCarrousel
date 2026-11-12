@@ -13,9 +13,11 @@ Crea un usuario en Supabase Auth mediante invitación por correo y escribe en
 - Además, la función vuelve a validar el usuario con `auth.getUser()`.
 - Solo un perfil **activo** con rol `admin` puede invitar.
 - Los claims del JWT deben seguir vigentes: `rol = admin`, `empresa_id` y
-  `centro_costo_id` iguales al perfil materializado. Si el perfil fue degradado
-  o movido sin refrescar la sesión, la función responde `403` y pide volver a
-  iniciar sesión, igual que `private.es_admin()` en la base (`0017`).
+  `centro_costo_id` iguales al perfil materializado. La función lee el payload
+  del token ya validado por la plataforma, no el registro actual de Auth, para
+  que un token emitido antes de un cambio de alcance falle cerrado. Si no
+  coinciden, responde `403` y pide volver a iniciar sesión, igual que
+  `private.es_admin()` en la base (`0017`).
 - La empresa del admin debe seguir **activa**. La función usa `service_role`,
   que ignora RLS, así que la suspensión de la empresa (`0013`) se verifica de
   forma explícita antes de enviar la invitación.
@@ -100,13 +102,17 @@ npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 El arnés levanta un servidor HTTP que emula los endpoints de Supabase Auth y
 PostgREST usados por la función, arranca `invitar-usuario` como subproceso en un
-puerto libre (`PORT`) y verifica **27 escenarios**:
+puerto libre (`PORT`) y verifica **31 escenarios**:
 
 - CORS, método distinto de `POST` y ausencia o invalidez de la sesión.
 - Perfil inexistente, inactivo, con rol distinto de `admin` o con error de
   consulta.
-- Claims del JWT degradados o desalineados con el perfil (`rol`, `empresa_id` o
-  `centro_costo_id`), sin enviar la invitación.
+- Claims del token degradados o desalineados con el perfil (`rol`, `empresa_id`
+  o `centro_costo_id`), token sin forma de JWT o emitido para otro usuario, sin
+  enviar la invitación.
+- El payload del token manda sobre el registro actual de Auth: un token viejo no
+  hereda el alcance nuevo del perfil y un registro desalineado no invalida un
+  token correcto.
 - Empresa suspendida o inexistente (`403`) y error al consultarla (`500`), sin
   enviar la invitación.
 - Validaciones de JSON, correo, nombre, rol y UUID del centro.
