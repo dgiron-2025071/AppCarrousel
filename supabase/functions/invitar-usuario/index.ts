@@ -155,6 +155,24 @@ Deno.serve(
       return error("Solo un administrador activo puede invitar usuarios.", 403);
     }
 
+    // El alcance autorizado es el del JWT (`app_metadata`), igual que en la base
+    // de datos (`0017`). Si el perfil fue degradado o movido sin refrescar la
+    // sesión, la función falla cerrada en lugar de ampliar el alcance.
+    const claims = (authData.user.app_metadata ?? {}) as Record<
+      string,
+      unknown
+    >;
+    if (
+      claims.rol !== "admin" ||
+      claims.empresa_id !== perfil.empresa_id ||
+      claims.centro_costo_id !== perfil.centro_costo_id
+    ) {
+      return error(
+        "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
+        403,
+      );
+    }
+
     // `service_role` ignora RLS: la suspensión de la empresa (0013) no basta.
     const { data: empresas, error: empresaError } = await admin
       .from("empresas")
