@@ -1970,6 +1970,41 @@ try {
   await q('rollback');
 }
 
+await q('begin');
+try {
+  await q('update public.perfiles set activo = false where id = $1', [U.gerRoot]);
+
+  await q('savepoint revisor_inactivo');
+  let errorInactivo = null;
+  try {
+    await q(`
+      insert into public.solicitudes_horas_extras (
+        empresa_id, empleado_id, centro_costo_id, inicio, fin,
+        justificacion, estado, revisado_por, revisado_en
+      ) values (
+        $1, $2, $3, now() + interval '73 days', now() + interval '73 days' + interval '1 hour',
+        'Revisión firmada por un administrador inactivo', 'aprobada', $4, now()
+      )
+    `, [A.empresa, U.empA, A.child, U.gerRoot]);
+  } catch (error) {
+    errorInactivo = error;
+  }
+  await q('rollback to savepoint revisor_inactivo');
+  eq('un administrador inactivo no puede firmar una revisión nueva',
+    errorInactivo?.code, '23514');
+
+  eq('desactivar al revisor no invalida la revisión que ya firmó',
+    await scalar(`
+      select count(*)::int
+      from public.solicitudes_horas_extras
+      where revisado_por = $1
+        and estado in ('aprobada', 'rechazada')
+    `, [U.gerRoot]),
+    1);
+} finally {
+  await q('rollback');
+}
+
 // -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
