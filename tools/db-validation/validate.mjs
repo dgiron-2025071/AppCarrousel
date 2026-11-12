@@ -328,6 +328,21 @@ eq('toda función SECURITY DEFINER fija search_path', await scalar(`
     and p.prosecdef
     and not coalesce(p.proconfig @> array['search_path=""'], false)
 `), 0);
+eq('ninguna función es ejecutable por PUBLIC/anon', await scalar(`
+  select count(*)::int
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname in ('public','private')
+    and (
+      p.proacl is null
+      or exists (
+        select 1
+        from aclexplode(p.proacl) a
+        where a.grantee = 0
+          and a.privilege_type = 'EXECUTE'
+      )
+    )
+`), 0);
 
 // -----------------------------------------------------------------------------
 // Jerarquía
