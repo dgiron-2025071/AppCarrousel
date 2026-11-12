@@ -93,6 +93,11 @@ dejan datos ni privilegios modificados.
   `solicitudes_horas_extras` y la del revisor incluyen `empresa_id`. No se puede
   referenciar un perfil de otra empresa, borrar al revisor ni mover de empresa a
   un empleado con historial.
+- Coherencia y solape de horas extras: pendiente no tiene revisor ni comentario;
+  cancelada cierra sin revisor; aprobada y rechazada exigen la firma. Una
+  restricción de exclusión GiST impide dos solicitudes vivas del mismo
+  especialista con rangos solapados; rechazadas y canceladas liberan el rango y
+  los rangos contiguos no cuentan como solape.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
@@ -102,7 +107,7 @@ dejan datos ni privilegios modificados.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **203 pruebas OK, 0 FAIL**.
+Resultado actual: **215 pruebas OK, 0 FAIL**.
 
 ## Límites
 
