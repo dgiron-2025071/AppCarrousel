@@ -1073,6 +1073,25 @@ try {
   await q('rollback');
 }
 
+// Retirar el alcance debe cortar el acceso de un token ya emitido.
+await q('begin');
+try {
+  const revocable = randomUUID();
+  await q(`insert into auth.users (id, email, raw_app_meta_data) values ($1,'revocable@example.com',$2::jsonb)`,
+    [revocable, appMeta(A.empresa, A.child, 'empleado')]);
+  await q(`update auth.users set raw_app_meta_data = '{}'::jsonb where id = $1`, [revocable]);
+  eq('quitar los claims desactiva el perfil existente',
+    await scalar('select activo from public.perfiles where id = $1', [revocable]), false);
+  await q(`update auth.users set raw_app_meta_data = $1::jsonb where id = $2`,
+    [appMeta(A.empresa, A.grand, 'empleado'), revocable]);
+  eq('restaurar los claims no reactiva una baja',
+    await scalar('select activo from public.perfiles where id = $1', [revocable]), false);
+  eq('restaurar los claims sí actualiza el alcance',
+    await scalar('select centro_costo_id from public.perfiles where id = $1', [revocable]), A.grand);
+} finally {
+  await q('rollback');
+}
+
 // Retención del historial: una cuenta con actividad no se puede borrar; se
 // desactiva el perfil para dar de baja sin perder la evidencia.
 group('Retención del historial laboral');
