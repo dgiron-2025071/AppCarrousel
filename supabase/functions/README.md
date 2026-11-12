@@ -12,6 +12,9 @@ Crea un usuario en Supabase Auth mediante invitación por correo y escribe en
 - La función se despliega con verificación de JWT activada (`verify_jwt`).
 - Además, la función vuelve a validar el usuario con `auth.getUser()`.
 - Solo un perfil **activo** con rol `admin` puede invitar.
+- La empresa del admin debe seguir **activa**. La función usa `service_role`,
+  que ignora RLS, así que la suspensión de la empresa (`0013`) se verifica de
+  forma explícita antes de enviar la invitación.
 - El centro destino debe pertenecer a la empresa del admin y estar en su
   subárbol jerárquico (`ruta` del centro). El `empresa_id` lo determina la
   función a partir del perfil del solicitante, no el cuerpo de la petición.
@@ -93,11 +96,13 @@ npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 El arnés levanta un servidor HTTP que emula los endpoints de Supabase Auth y
 PostgREST usados por la función, arranca `invitar-usuario` como subproceso en un
-puerto libre (`PORT`) y verifica **21 escenarios**:
+puerto libre (`PORT`) y verifica **24 escenarios**:
 
 - CORS, método distinto de `POST` y ausencia o invalidez de la sesión.
 - Perfil inexistente, inactivo, con rol distinto de `admin` o con error de
   consulta.
+- Empresa suspendida o inexistente (`403`) y error al consultarla (`500`), sin
+  enviar la invitación.
 - Validaciones de JSON, correo, nombre, rol y UUID del centro.
 - Centro de otra empresa, centro fuera del subárbol y error al consultarlo.
 - Invitación exitosa de `empleado` y de `admin`, comprobando que

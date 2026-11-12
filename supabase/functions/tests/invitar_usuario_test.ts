@@ -36,6 +36,10 @@ interface CentroFalso {
   ruta: string[];
 }
 
+interface EmpresaFalso {
+  activa: boolean;
+}
+
 interface ErrorFalso {
   status: number;
   message: string;
@@ -52,6 +56,8 @@ interface EstadoFalso {
   sesionValida: boolean;
   perfil: PerfilFalso | null;
   perfilError: boolean;
+  empresa: EmpresaFalso | null;
+  empresaError: boolean;
   centro: CentroFalso | null;
   centroError: boolean;
   invitacionError: ErrorFalso | null;
@@ -78,6 +84,8 @@ function estadoInicial(): EstadoFalso {
       activo: true,
     },
     perfilError: false,
+    empresa: { activa: true },
+    empresaError: false,
     centro: {
       id: CENTRO_HIJO,
       empresa_id: EMPRESA_ID,
@@ -123,6 +131,13 @@ async function manejador(req: Request): Promise<Response> {
       return responder({ message: "fallo al consultar perfiles" }, 500);
     }
     return responder(estado.perfil ? [estado.perfil] : []);
+  }
+
+  if (url.pathname === "/rest/v1/empresas") {
+    if (estado.empresaError) {
+      return responder({ message: "fallo al consultar empresas" }, 500);
+    }
+    return responder(estado.empresa ? [estado.empresa] : []);
   }
 
   if (url.pathname === "/rest/v1/centros_costo") {
@@ -416,6 +431,41 @@ Deno.test({
         });
       });
 
+      await t.step("error al consultar la empresa", async () => {
+        estado = estadoInicial();
+        estado.empresaError = true;
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 500);
+        assertEquals(res.json, {
+          error: "No se pudo verificar la empresa.",
+        });
+        assertEquals(
+          estado.peticiones.some((p) => p.pathname === "/auth/v1/invite"),
+          false,
+        );
+      });
+
+      await t.step("empresa suspendida", async () => {
+        estado = estadoInicial();
+        assert(estado.empresa, "La empresa de prueba debe existir");
+        estado.empresa.activa = false;
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 403);
+        assertEquals(res.json, { error: "La empresa está suspendida." });
+        assertEquals(
+          estado.peticiones.some((p) => p.pathname === "/auth/v1/invite"),
+          false,
+        );
+      });
+
+      await t.step("empresa inexistente", async () => {
+        estado = estadoInicial();
+        estado.empresa = null;
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 403);
+        assertEquals(res.json, { error: "La empresa está suspendida." });
+      });
+
       await t.step("cuerpo que no es JSON", async () => {
         estado = estadoInicial();
         const res = await invocar(funcion.base, { rawBody: "{" });
@@ -527,6 +577,16 @@ Deno.test({
         assert(
           consultaPerfil.search.includes(`id=eq.${ADMIN_ID}`),
           "El perfil debe filtrarse por el usuario autenticado",
+        );
+
+        const consultaEmpresa = peticion("GET", "/rest/v1/empresas");
+        assert(
+          consultaEmpresa.search.includes("limit=1"),
+          "La empresa debe consultarse con limit=1",
+        );
+        assert(
+          consultaEmpresa.search.includes(`id=eq.${EMPRESA_ID}`),
+          "La empresa debe filtrarse por la empresa del perfil",
         );
 
         const consultaCentro = peticion("GET", "/rest/v1/centros_costo");
