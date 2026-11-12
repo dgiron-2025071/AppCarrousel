@@ -1929,6 +1929,48 @@ try {
 }
 
 // -----------------------------------------------------------------------------
+// Revisor administrador
+// -----------------------------------------------------------------------------
+group('Revisor administrador');
+
+await expectError('un empleado no puede quedar como revisor',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, revisado_por, revisado_en
+   ) values (
+     $1, $2, $3, now() + interval '70 days', now() + interval '70 days' + interval '1 hour',
+     'Revisión firmada por un empleado', 'aprobada', $4, now()
+   )`,
+  [A.empresa, U.empA, A.child, U.empGrand], '23514');
+
+await expectError('el especialista no puede figurar como su propio revisor',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, inicio, fin,
+     justificacion, estado, revisado_por, revisado_en
+   ) values (
+     $1, $2, $3, now() + interval '71 days', now() + interval '71 days' + interval '1 hour',
+     'Autoaprobación fuera de RLS', 'aprobada', $2, now()
+   )`,
+  [A.empresa, U.empA, A.child], '23514');
+
+await q('begin');
+try {
+  const firmada = await q(`
+    insert into public.solicitudes_horas_extras (
+      empresa_id, empleado_id, centro_costo_id, inicio, fin,
+      justificacion, estado, revisado_por, revisado_en
+    ) values (
+      $1, $2, $3, now() + interval '72 days', now() + interval '72 days' + interval '1 hour',
+      'Revisión firmada por un administrador', 'aprobada', $4, now()
+    )
+  `, [A.empresa, U.empA, A.child, U.gerA]);
+  eq('un administrador de la empresa sí puede firmar la revisión',
+    firmada.rowCount, 1);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
 group('Fail-closed y anon');
