@@ -32,6 +32,39 @@ class AuthRepository {
     );
   }
 
+  /// Registro propio (como en control-jornadas): la cuenta queda pendiente
+  /// hasta que un admin de la empresa le asigne centro y puesto.
+  /// Devuelve true si Supabase pide confirmar el correo antes de entrar.
+  Future<bool> registrarse({
+    required String email,
+    required String password,
+    required String nombre,
+    required String telefono,
+    required String empresaCodigo,
+  }) async {
+    if (password.length < 8) {
+      throw const AppException(
+        'La contraseña debe tener al menos 8 caracteres.',
+      );
+    }
+    final respuesta = await _client.auth.signUp(
+      email: email.trim(),
+      password: password,
+      emailRedirectTo: Env.oauthRedirect,
+      data: {
+        'nombre_completo': nombre.trim(),
+        'telefono': telefono.trim(),
+        'empresa_codigo': empresaCodigo.trim().toUpperCase(),
+      },
+    );
+    return respuesta.session == null;
+  }
+
+  /// Vuelve a pedir el JWT para recoger el app_metadata recién asignado.
+  Future<void> refrescarSesion() async {
+    await _client.auth.refreshSession();
+  }
+
   Future<void> enviarRecuperacion(String email) async {
     await _client.auth.resetPasswordForEmail(
       email.trim(),
@@ -41,7 +74,9 @@ class AuthRepository {
 
   Future<void> actualizarContrasena(String password) async {
     if (password.length < 8) {
-      throw const AppException('La contraseña debe tener al menos 8 caracteres.');
+      throw const AppException(
+        'La contraseña debe tener al menos 8 caracteres.',
+      );
     }
     await _client.auth.updateUser(UserAttributes(password: password));
   }
@@ -51,7 +86,9 @@ class AuthRepository {
   Future<Perfil?> obtenerPerfil(String userId) async {
     final data = await _client
         .from('perfiles')
-        .select('*, centros_costo!perfiles_centro_fk(nombre)')
+        .select(
+          '*, centros_costo!perfiles_centro_fk(nombre), puestos!perfiles_puesto_fk(nombre)',
+        )
         .eq('id', userId)
         .maybeSingle();
     if (data == null) return null;

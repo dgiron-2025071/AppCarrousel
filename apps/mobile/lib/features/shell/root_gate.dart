@@ -8,6 +8,7 @@ import '../../providers/app_providers.dart';
 import '../auth/auth_controller.dart';
 import '../auth/login_page.dart';
 import '../auth/reset_password_page.dart';
+import 'cuenta_pendiente_page.dart';
 import 'home_shell.dart';
 
 class RootGate extends ConsumerStatefulWidget {
@@ -81,7 +82,7 @@ class _RootGateState extends ConsumerState<RootGate> {
       ),
       data: (perfil) {
         if (perfil == null) {
-          return _SinAprovisionar(email: user.email ?? '');
+          return CuentaPendientePage(email: user.email ?? '');
         }
         return HomeShell(perfil: perfil);
       },
@@ -199,60 +200,6 @@ class _ErrorConfiguracion extends StatelessWidget {
       body: MensajeError(
         mensaje: 'No se pudo conectar con Supabase.\n\n$error',
         icono: Icons.cloud_off_rounded,
-      ),
-    );
-  }
-}
-
-class _SinAprovisionar extends ConsumerWidget {
-  const _SinAprovisionar({required this.email});
-
-  final String email;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final colores = Theme.of(context).colorScheme;
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(Icons.hourglass_top_rounded,
-                      size: 64, color: colores.primary),
-                  const SizedBox(height: 18),
-                  Text(
-                    'Cuenta pendiente de aprovisionamiento',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'La cuenta $email existe, pero todavía no tiene empresa, centro de costo ni rol asignados. '
-                    'Pide al administrador que complete tu invitación.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: colores.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 24),
-                  OutlinedButton(
-                    onPressed: () => ref
-                        .read(authControllerProvider.notifier)
-                        .cerrarSesion(),
-                    child: const Text('Cerrar sesión'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }

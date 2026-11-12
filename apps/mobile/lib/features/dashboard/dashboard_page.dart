@@ -11,6 +11,7 @@ import '../../data/models/perfil.dart';
 import '../../providers/app_providers.dart';
 import '../jornada/marcaje_page.dart';
 import '../solicitudes/solicitud_form_page.dart';
+import 'widgets/automatizacion_cards.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
@@ -66,7 +67,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             ),
           ],
         ),
-        data: (jornadas) => _contenido(context, perfil, jornadas, nombresParques),
+        data: (jornadas) =>
+            _contenido(context, perfil, jornadas, nombresParques),
       ),
     );
   }
@@ -106,9 +108,11 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           ),
         ),
         const SizedBox(height: 20),
+        const HorarioHoyCard(),
         _TarjetaJornada(
           abierta: abierta,
-          nombreParque: abierta == null ? null : nombresParques[abierta.parqueId],
+          nombreParque:
+              abierta == null ? null : nombresParques[abierta.parqueId],
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const MarcajePage()),
           ),
@@ -158,6 +162,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             MaterialPageRoute(builder: (_) => const SolicitudFormPage()),
           ),
         ),
+        const HorasExtraDetectadasCard(),
         const SizedBox(height: 26),
         Row(
           children: [
@@ -190,8 +195,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           ...jornadas.take(6).map(
                 (jornada) => _FilaJornada(
                   jornada: jornada,
-                  nombreParque:
-                      nombresParques[jornada.parqueId] ?? 'Parque',
+                  nombreParque: nombresParques[jornada.parqueId] ?? 'Parque',
                 ),
               ),
       ],

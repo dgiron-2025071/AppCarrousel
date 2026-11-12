@@ -30,6 +30,7 @@ class SolicitudHorasExtras {
     this.comentarioAdmin,
     this.revisadoPor,
     this.revisadoEn,
+    this.autorizadorNombre,
   });
 
   final String id;
@@ -44,6 +45,9 @@ class SolicitudHorasExtras {
   final String? comentarioAdmin;
   final String? revisadoPor;
   final DateTime? revisadoEn;
+
+  /// Jefe al que le corresponde autorizar, fijado por la base de datos.
+  final String? autorizadorNombre;
 
   Duration get duracion => fin.difference(inicio);
 
@@ -63,6 +67,7 @@ class SolicitudHorasExtras {
         revisadoEn: map['revisado_en'] == null
             ? null
             : DateTime.parse(map['revisado_en'] as String).toLocal(),
+        autorizadorNombre: map['autorizador_nombre'] as String?,
       );
 }
 
@@ -71,9 +76,11 @@ class SolicitudDetalle {
     required this.solicitud,
     required this.empleadoNombre,
     required this.centroNombre,
+    this.empleadoPuesto,
   });
 
   final SolicitudHorasExtras solicitud;
   final String empleadoNombre;
   final String centroNombre;
+  final String? empleadoPuesto;
 }
