@@ -296,9 +296,9 @@ eq('RLS habilitada en las 6 tablas', await scalar(`
 eq('extensiones citext y pgcrypto', await scalar(`
   select count(*)::int from pg_extension where extname in ('citext','pgcrypto')
 `), 2);
-eq('políticas RLS creadas (2+4+4+1+3+4)', await scalar(`
+eq('políticas RLS creadas (2+4+4+1+3+4 base + 9 de la propuesta 0018–0023)', await scalar(`
   select count(*)::int from pg_policies where schemaname = 'public'
-`), 18);
+`), 27);
 eq('enum de estado de solicitud', await scalar(`
   select enum_range(null::public.estado_solicitud)::text
 `), '{pendiente,aprobada,rechazada,cancelada}');
@@ -1622,6 +1622,448 @@ try {
 } finally {
   await q('rollback');
 }
+
+// -----------------------------------------------------------------------------
+// Puestos, jefe responsable, autorizador y reporte (0018–0020)
+// -----------------------------------------------------------------------------
+group('Puestos');
+const PU = {
+  tecnicoA: 'a2000000-0000-4000-8000-000000000001',
+  jefeA: 'a2000000-0000-4000-8000-000000000002',
+  tecnicoB: 'b2000000-0000-4000-8000-000000000001',
+};
+await q(`
+  insert into public.puestos (id, empresa_id, nombre) values
+    ($1, $2, 'Técnico'),
+    ($3, $2, 'Jefe de mantenimiento'),
+    ($4, $5, 'Técnico');
+`, [PU.tecnicoA, A.empresa, PU.jefeA, PU.tecnicoB, B.empresa]);
+
+eq('el empleado solo ve los puestos de su empresa',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q('select id from public.puestos order by nombre')).rows.map((r) => r.id)),
+  [PU.jefeA, PU.tecnicoA]);
+
+await expectError('rechaza un puesto repetido en la empresa', `
+  insert into public.puestos (empresa_id, nombre) values ($1, 'técnico')
+`, [A.empresa], '23505');
+
+await expectRoleError('el empleado no crea puestos', 'authenticated', empAClaims, `
+  insert into public.puestos (empresa_id, nombre) values ($1, 'Autoasignado')
+`, [A.empresa], '42501');
+
+await q(`
+  update auth.users
+  set raw_app_meta_data = raw_app_meta_data || jsonb_build_object('puesto_id', $2::text)
+  where id = $1
+`, [U.empA, PU.tecnicoA]);
+eq('el puesto se sincroniza desde app_metadata',
+  await scalar('select puesto_id from public.perfiles where id = $1', [U.empA]), PU.tecnicoA);
+
+await expectError('rechaza un puesto de otra empresa', `
+  update auth.users
+  set raw_app_meta_data = raw_app_meta_data || jsonb_build_object('puesto_id', $2::text)
+  where id = $1
+`, [U.empA, PU.tecnicoB], '23503');
+
+await expectRoleError('el empleado no cambia su propio puesto', 'authenticated', empAClaims, `
+  update public.perfiles set puesto_id = $2 where id = $1
+`, [U.empA, PU.jefeA], '42501');
+
+group('Jefe responsable y persona que autoriza');
+const autorizadorDe = (empleado) =>
+  scalar('select private.autorizador_para($1)', [empleado]);
+
+eq('sin responsables, autoriza un admin del mismo centro', await autorizadorDe(U.empA), U.gerA);
+eq('el nieto sube hasta el admin del centro hijo', await autorizadorDe(U.empGrand), U.gerA);
+eq('un admin nunca se autoriza a sí mismo: sube a la raíz', await autorizadorDe(U.gerA), U.gerRoot);
+eq('nadie por encima de la raíz', await autorizadorDe(U.gerRoot), null);
+
+await q('begin');
+try {
+  await q('update public.centros_costo set responsable_id = $2 where id = $1', [A.child, U.gerRoot]);
+  eq('el responsable configurado tiene prioridad sobre otros admins',
+    await autorizadorDe(U.empA), U.gerRoot);
+  await q('update public.perfiles set activo = false where id = $1', [U.gerRoot]);
+  eq('un responsable inactivo se ignora', await autorizadorDe(U.empA), U.gerA);
+} finally {
+  await q('rollback');
+}
+
+await expectError('el responsable debe tener alcance sobre el centro', `
+  update public.centros_costo set responsable_id = $2 where id = $1
+`, [A.sibling, U.gerA], '23514');
+
+await expectError('el responsable debe ser admin', `
+  update public.centros_costo set responsable_id = $2 where id = $1
+`, [A.child, U.empA], '23514');
+
+await expectRoleError('un admin no asigna responsables desde la API', 'authenticated',
+  claims(U.gerA, A.empresa, A.child, 'admin'), `
+  update public.centros_costo set responsable_id = $2 where id = $1
+`, [A.grand, U.gerA], '42501');
+
+eq('las solicitudes existentes ya tienen autorizador',
+  (await q(`
+    select autorizador_id, autorizador_nombre
+    from public.solicitudes_horas_extras where id = $1
+  `, [S.aPendiente])).rows[0],
+  { autorizador_id: U.gerA, autorizador_nombre: 'Admin A' });
+
+eq('la solicitud nueva guarda quién autoriza',
+  await withRole('authenticated', claims(U.empGrand, A.empresa, A.grand, 'empleado'), async () =>
+    (await q(`
+      insert into public.solicitudes_horas_extras (centro_costo_id, inicio, fin, justificacion)
+      values ($1, now(), now() + interval '2 hours', 'Cambio de bandas en la rueda')
+      returning autorizador_id, autorizador_nombre
+    `, [A.grand])).rows[0]),
+  { autorizador_id: U.gerA, autorizador_nombre: 'Admin A' });
+
+await expectRoleError('el cliente no elige al autorizador', 'authenticated', empAClaims, `
+  insert into public.solicitudes_horas_extras
+    (centro_costo_id, inicio, fin, justificacion, autorizador_id)
+  values ($1, now(), now() + interval '1 hour', 'Intento de elegir autorizador', $2)
+`, [A.grand, U.empA], '42501');
+
+eq('el empleado consulta su autorizador con nombre y puesto',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q('select id, nombre_completo, puesto from public.mi_autorizador()')).rows),
+  [{ id: U.gerA, nombre_completo: 'Admin A', puesto: null }]);
+
+await expectRoleError('anon no consulta autorizadores', 'anon', {}, `
+  select * from public.mi_autorizador()
+`, [], '42501');
+
+group('Reporte de horas extras');
+const filasReporte = (jwtClaims) =>
+  withRole('authenticated', jwtClaims, async () =>
+    (await q('select id, empleado, puesto, horas, ceco_codigo, persona_que_autoriza from public.reporte_horas_extras order by id')).rows);
+
+const reporteEmpA = await filasReporte(empAClaims);
+eq('el empleado solo ve sus filas en el reporte',
+  [...new Set(reporteEmpA.map((r) => r.empleado))], ['Empleado A']);
+const filaPendiente = reporteEmpA.find((r) => r.id === S.aPendiente);
+eq('el reporte trae columnas del formulario',
+  [filaPendiente.puesto, filaPendiente.horas, filaPendiente.ceco_codigo, filaPendiente.persona_que_autoriza],
+  ['Técnico', '3.00', 'A-GRAND', 'Admin A']);
+
+const reporteGerA = await filasReporte(claims(U.gerA, A.empresa, A.child, 'admin'));
+ok('el admin ve las filas de su subárbol', reporteGerA.some((r) => r.id === S.grandPendiente));
+ok('el admin no ve filas de otra empresa', !reporteGerA.some((r) => r.id === S.bPendiente));
+
+await expectRoleError('anon no lee el reporte', 'anon', {}, `
+  select count(*) from public.reporte_horas_extras
+`, [], '42501');
+
+// -----------------------------------------------------------------------------
+// Horario personalizado y horas extras detectadas por GPS (0021)
+// -----------------------------------------------------------------------------
+group('Horarios personalizados');
+const gerAClaims = claims(U.gerA, A.empresa, A.child, 'admin');
+
+eq('la empresa usa la zona horaria de Guatemala por defecto',
+  await scalar('select zona_horaria from public.empresas where id = $1', [A.empresa]),
+  'America/Guatemala');
+await expectError('rechaza una zona horaria inexistente', `
+  update public.empresas set zona_horaria = 'Marte/Olympus' where id = $1
+`, [A.empresa], '22023');
+
+const insertarHorario = `
+  insert into public.horarios (empleado_id, dia_semana, hora_entrada, hora_salida, parque_id)
+  values ($1, $2, $3, $4, $5)
+  returning empresa_id, empleado_id
+`;
+eq('el admin define el horario de su equipo',
+  await withRole('authenticated', gerAClaims, async () =>
+    (await q(insertarHorario, [U.empA, 1, '08:00', '17:00', P.child])).rows[0]),
+  { empresa_id: A.empresa, empleado_id: U.empA });
+
+await expectRoleError('el admin no define su propio horario', 'authenticated', gerAClaims,
+  insertarHorario, [U.gerA, 1, '08:00', '17:00', null], '42501');
+await expectRoleError('el admin no define horarios fuera de su subárbol', 'authenticated', gerAClaims,
+  insertarHorario, [U.gerRoot, 1, '08:00', '17:00', null], '42501');
+await expectRoleError('el horario no apunta a un parque fuera de su alcance', 'authenticated', gerAClaims,
+  insertarHorario, [U.empA, 2, '08:00', '17:00', P.sibling], '42501');
+await expectRoleError('el empleado no edita su horario', 'authenticated', empAClaims,
+  insertarHorario, [U.empA, 3, '08:00', '17:00', null], '42501');
+await expectRoleError('entrada y salida no pueden ser iguales', 'authenticated', gerAClaims,
+  insertarHorario, [U.empA, 4, '08:00', '08:00', null], '23514');
+
+// Horario de lunes para el resto de pruebas (como dueño: carga administrativa).
+await q(`
+  insert into public.horarios (empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida, parque_id)
+  values ($1, $2, 1, '08:00', '17:00', $3)
+`, [A.empresa, U.empA, P.child]);
+
+eq('el empleado ve su horario',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q('select dia_semana, hora_entrada from public.horarios')).rows),
+  [{ dia_semana: 1, hora_entrada: '08:00:00' }]);
+eq('otra empresa no ve el horario',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    Number(await scalar('select count(*) from public.horarios'))),
+  0);
+
+group('Cumplimiento y horas extras por GPS');
+// Lunes 9 de noviembre de 2026 en Guatemala (UTC-6): entra 08:20 y sale 18:30.
+const JC = randomUUID();
+const jornadaLunes = async () => q(`
+  insert into public.jornadas (
+    id, empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+    entrada_lat, entrada_lon, entrada_precision_metros,
+    salida_lat, salida_lon, salida_precision_metros, salida_dentro_geocerca
+  ) values ($1, $2, $3, $4, '2026-11-09 14:20:00+00', '2026-11-10 00:30:00+00',
+            14.6350, -90.5070, 5, 14.6350, -90.5070, 5, true)
+`, [JC, A.empresa, U.empA, P.child]);
+await jornadaLunes();
+
+const cumplimiento = await withRole('authenticated', empAClaims, async () =>
+  (await q(`
+    select fecha::text, minutos_tarde, llego_tarde, minutos_extra, en_parque_programado,
+           salida_programada = '2026-11-09 23:00:00+00'::timestamptz as salida_ok
+    from public.cumplimiento_jornadas where jornada_id = $1
+  `, [JC])).rows[0]);
+eq('compara la jornada con el horario del día local',
+  cumplimiento,
+  { fecha: '2026-11-09', minutos_tarde: 20, llego_tarde: true, minutos_extra: 90,
+    en_parque_programado: true, salida_ok: true });
+
+eq('sin horario ese día no inventa minutos extra',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`
+      select minutos_extra from public.cumplimiento_jornadas where jornada_id = $1
+    `, [J.aCerrada])).rows),
+  [{ minutos_extra: null }]);
+
+await q('begin');
+try {
+  await q(`update public.horarios set hora_entrada = '22:00', hora_salida = '06:00'
+           where empleado_id = $1 and dia_semana = 1`, [U.empA]);
+  eq('un turno nocturno termina al día siguiente',
+    await scalar(`
+      select salida_programada = '2026-11-10 12:00:00+00'::timestamptz
+      from public.cumplimiento_jornadas where jornada_id = $1
+    `, [JC]),
+    true);
+} finally {
+  await q('rollback');
+}
+
+eq('el admin ve el cumplimiento de su equipo',
+  await withRole('authenticated', gerAClaims, async () =>
+    Number(await scalar('select count(*) from public.cumplimiento_jornadas where jornada_id = $1', [JC]))),
+  1);
+
+const solicitarDesdeJornada = `
+  insert into public.solicitudes_horas_extras
+    (centro_costo_id, inicio, fin, justificacion, jornada_id)
+  values ($1, '2026-11-09 23:00:00+00', '2026-11-10 00:30:00+00',
+          'Cierre del parque después del horario', $2)
+  returning jornada_id
+`;
+eq('la solicitud queda respaldada por la jornada GPS',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(solicitarDesdeJornada, [A.child, JC])).rows[0].jornada_id),
+  JC);
+
+await expectRoleError('no se respalda con la jornada de otra persona', 'authenticated',
+  claims(U.empGrand, A.empresa, A.grand, 'empleado'), solicitarDesdeJornada, [A.grand, JC], '42501');
+
+await q(`
+  insert into public.solicitudes_horas_extras
+    (empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion, jornada_id)
+  values ($1, $2, $3, '2026-11-09 23:00:00+00', '2026-11-10 00:30:00+00',
+          'Cierre del parque después del horario', $4)
+`, [A.empresa, U.empA, A.child, JC]);
+
+await expectRoleError('una jornada respalda una sola solicitud viva', 'authenticated', empAClaims,
+  solicitarDesdeJornada, [A.child, JC], '23505');
+
+eq('el cumplimiento indica que ya se solicitó',
+  await withRole('authenticated', empAClaims, async () =>
+    (await scalar('select solicitud_id is not null from public.cumplimiento_jornadas where jornada_id = $1', [JC]))),
+  true);
+
+eq('el reporte marca el respaldo GPS',
+  await withRole('authenticated', empAClaims, async () =>
+    await scalar('select bool_or(respaldo_gps) from public.reporte_horas_extras')),
+  true);
+
+// -----------------------------------------------------------------------------
+// Registro, incidencias y ajustes de jornada (0022)
+// -----------------------------------------------------------------------------
+group('Registro de colaboradores');
+const R = { nuevo: randomUUID(), otro: randomUUID(), invitado: randomUUID(), sinEmpresa: randomUUID() };
+await q(`
+  insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
+    ($1, 'nuevo@example.com', '{}'::jsonb,
+     '{"empresa_codigo":"EMPRESA-A","nombre_completo":"Técnico Nuevo","telefono":"5555-0000"}'::jsonb),
+    ($2, 'otro@example.com', '{}'::jsonb,
+     '{"empresa_codigo":"EMPRESA-A","nombre_completo":"Otro Aspirante"}'::jsonb),
+    ($3, 'invitado@example.com', $5::jsonb,
+     '{"empresa_codigo":"EMPRESA-A","nombre_completo":"Invitado"}'::jsonb),
+    ($4, 'perdido@example.com', '{}'::jsonb,
+     '{"empresa_codigo":"NO-EXISTE","nombre_completo":"Sin Empresa"}'::jsonb)
+`, [R.nuevo, R.otro, R.invitado, R.sinEmpresa, appMeta(A.empresa, A.child, 'empleado')]);
+
+eq('el registro propio queda pendiente en su empresa',
+  (await q('select empresa_id, nombre, telefono, estado from public.registros where id = $1', [R.nuevo])).rows[0],
+  { empresa_id: A.empresa, nombre: 'Técnico Nuevo', telefono: '5555-0000', estado: 'pendiente' });
+eq('una invitación o un código desconocido no crean registro',
+  Number(await scalar('select count(*) from public.registros where id = any($1::uuid[])', [[R.invitado, R.sinEmpresa]])), 0);
+eq('sin asignación todavía no hay perfil',
+  Number(await scalar('select count(*) from public.perfiles where id = $1', [R.nuevo])), 0);
+
+eq('la persona ve su propia solicitud',
+  await withRole('authenticated', { sub: R.nuevo }, async () =>
+    await scalar('select estado::text from public.registros')),
+  'pendiente');
+eq('el admin de la empresa ve las solicitudes',
+  await withRole('authenticated', gerAClaims, async () =>
+    Number(await scalar('select count(*) from public.registros where estado = $1', ['pendiente']))),
+  2);
+eq('otra empresa no ve las solicitudes',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    Number(await scalar('select count(*) from public.registros'))),
+  0);
+
+await expectRoleError('un empleado no aprueba registros', 'authenticated', empAClaims,
+  'select public.aprobar_registro($1, $2, null)', [R.nuevo, A.grand], '42501');
+await expectRoleError('el admin no asigna centros fuera de su subárbol', 'authenticated', gerAClaims,
+  'select public.aprobar_registro($1, $2, null)', [R.nuevo, A.sibling], '42501');
+
+await withRole('authenticated', gerAClaims, async () => {
+  await q('select public.aprobar_registro($1, $2, $3)', [R.nuevo, A.grand, PU.tecnicoA]);
+  await q('commit');
+  await q('begin');
+});
+eq('aprobar crea el perfil como empleado con centro y puesto',
+  (await q('select rol::text, centro_costo_id, puesto_id, nombre_completo::text as nombre from public.perfiles where id = $1', [R.nuevo])).rows[0],
+  { rol: 'empleado', centro_costo_id: A.grand, puesto_id: PU.tecnicoA, nombre: 'Técnico Nuevo' });
+eq('el registro queda aprobado y firmado',
+  (await q('select estado::text, revisado_por from public.registros where id = $1', [R.nuevo])).rows[0],
+  { estado: 'aprobado', revisado_por: U.gerA });
+
+await expectRoleError('un registro aprobado no se vuelve a aprobar', 'authenticated', gerAClaims,
+  'select public.aprobar_registro($1, $2, null)', [R.nuevo, A.grand], '23514');
+await expectRoleError('rechazar exige motivo', 'authenticated', gerAClaims,
+  'select public.rechazar_registro($1, $2)', [R.otro, 'no'], '23514');
+eq('el admin rechaza con motivo',
+  await withRole('authenticated', gerAClaims, async () => {
+    await q('select public.rechazar_registro($1, $2)', [R.otro, 'No pertenece a la empresa']);
+    return await scalar('select estado::text from public.registros where id = $1', [R.otro]);
+  }),
+  'rechazado');
+
+group('Incidencias automáticas');
+eq('la llegada tarde del lunes genera su incidencia',
+  (await q('select tipo::text, severidad::text, estado::text from public.incidencias where jornada_id = $1', [JC])).rows,
+  [{ tipo: 'llegada_tarde', severidad: 'baja', estado: 'abierta' }]);
+
+const TU = randomUUID();
+await q('begin');
+try {
+  await q(`insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data)
+           values ($1, 'turno@example.com', $2::jsonb, '{"nombre_completo":"Turno Prueba"}'::jsonb)`,
+    [TU, appMeta(A.empresa, A.child, 'empleado')]);
+  await q(`insert into public.horarios (empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida, parque_id)
+           values ($1, $2, 1, '08:00', '17:00', $3)`, [A.empresa, TU, P.child]);
+  const jt = randomUUID();
+  // Lunes 9/11 a las 10:30 en otro parque y con GPS de 70 m.
+  await q(`insert into public.jornadas (id, empresa_id, empleado_id, parque_id, entrada_en,
+             entrada_lat, entrada_lon, entrada_precision_metros)
+           values ($1, $2, $3, $4, '2026-11-09 16:30:00+00', 14.6349, -90.5069, 70)`,
+    [jt, A.empresa, TU, P.root]);
+  eq('detecta tardanza, parque distinto y GPS impreciso',
+    (await q('select tipo::text, severidad::text from public.incidencias where jornada_id = $1 order by tipo', [jt])).rows,
+    [{ tipo: 'llegada_tarde', severidad: 'alta' }, { tipo: 'parque_distinto', severidad: 'media' },
+      { tipo: 'precision_baja', severidad: 'baja' }]);
+  await q(`update public.jornadas set salida_en = '2026-11-09 21:00:00+00', salida_lat = 14.6349,
+             salida_lon = -90.5069, salida_precision_metros = 5, salida_dentro_geocerca = true
+           where id = $1`, [jt]);
+  eq('salir a las 15:00 con horario hasta las 17:00 es salida temprana',
+    await scalar(`select severidad::text from public.incidencias where jornada_id = $1 and tipo = 'salida_temprana'`, [jt]),
+    'alta');
+} finally {
+  await q('rollback');
+}
+
+eq('el empleado ve sus incidencias',
+  await withRole('authenticated', empAClaims, async () =>
+    Number(await scalar('select count(*) from public.incidencias where jornada_id = $1', [JC]))),
+  1);
+eq('el empleado no puede cerrar sus incidencias',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`update public.incidencias set estado = 'resuelta', resolucion = 'Me autojustifico'
+              where jornada_id = $1 returning id`, [JC])).rowCount),
+  0);
+await expectRoleError('resolver exige una nota', 'authenticated', gerAClaims, `
+  update public.incidencias set estado = 'resuelta', resolucion = 'ok' where jornada_id = $1
+`, [JC], '23514');
+eq('el admin resuelve y queda firmado',
+  await withRole('authenticated', gerAClaims, async () =>
+    (await q(`update public.incidencias set estado = 'resuelta', resolucion = 'Tráfico por lluvia, justificado'
+              where jornada_id = $1 returning resuelto_por, resuelto_en is not null as fecha`, [JC])).rows[0]),
+  { resuelto_por: U.gerA, fecha: true });
+
+group('Ajustes de jornada');
+await expectRoleError('el empleado no ajusta su jornada', 'authenticated', empAClaims,
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [JC, '2026-11-09 14:00:00+00', '2026-11-10 00:30:00+00', 'Olvidé marcar a tiempo'], '42501');
+await expectRoleError('no se ajusta una jornada abierta', 'authenticated',
+  claims(U.gerRoot, A.empresa, A.root, 'admin'), 'select public.ajustar_jornada($1, $2, $3, $4)',
+  [J.grandAbierta, '2026-11-09 14:00:00+00', '2026-11-09 20:00:00+00', 'Corrección de prueba'], '23514');
+await expectRoleError('el ajuste exige motivo', 'authenticated', gerAClaims,
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [JC, '2026-11-09 14:00:00+00', '2026-11-10 00:30:00+00', 'corto'], '23514');
+await expectRoleError('la salida no puede quedar antes de la entrada', 'authenticated', gerAClaims,
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [JC, '2026-11-10 01:00:00+00', '2026-11-10 00:30:00+00', 'Rango invertido de prueba'], '23514');
+
+await withRole('authenticated', gerAClaims, async () => {
+  await q('select public.ajustar_jornada($1, $2, $3, $4)',
+    [JC, '2026-11-09 14:00:00+00', '2026-11-10 00:30:00+00', 'Marcó tarde por falla del celular']);
+  await q('commit');
+  await q('begin');
+});
+eq('el ajuste cambia la jornada',
+  await scalar(`select entrada_en = '2026-11-09 14:00:00+00'::timestamptz from public.jornadas where id = $1`, [JC]),
+  true);
+eq('el empleado ve el historial del ajuste',
+  await withRole('authenticated', empAClaims, async () =>
+    (await q(`select entrada_anterior = '2026-11-09 14:20:00+00'::timestamptz as antes, motivo
+              from public.ajustes_jornada where jornada_id = $1`, [JC])).rows),
+  [{ antes: true, motivo: 'Marcó tarde por falla del celular' }]);
+
+
+// -----------------------------------------------------------------------------
+// Centros de costo por lugar (0023)
+// -----------------------------------------------------------------------------
+group('Centros de costo por lugar');
+eq('el admin agrega un centro a un lugar de su alcance',
+  await withRole('authenticated', gerAClaims, async () =>
+    (await q(`insert into public.parques_centros (empresa_id, parque_id, centro_costo_id)
+              values ($1, $2, $3) returning parque_id`, [A.empresa, P.child, A.sibling])).rows[0].parque_id),
+  P.child);
+await expectRoleError('no configura lugares fuera de su alcance', 'authenticated', gerAClaims, `
+  insert into public.parques_centros (empresa_id, parque_id, centro_costo_id) values ($1, $2, $3)
+`, [A.empresa, P.sibling, A.child], '42501');
+await expectRoleError('un empleado no configura lugares', 'authenticated', empAClaims, `
+  insert into public.parques_centros (empresa_id, parque_id, centro_costo_id) values ($1, $2, $3)
+`, [A.empresa, P.child, A.grand], '42501');
+await expectError('no mezcla centros de otra empresa', `
+  insert into public.parques_centros (empresa_id, parque_id, centro_costo_id) values ($1, $2, $3)
+`, [A.empresa, P.child, B.root], '23503');
+await q(`insert into public.parques_centros (empresa_id, parque_id, centro_costo_id) values ($1, $2, $3)`,
+  [A.empresa, P.child, A.sibling]);
+eq('el empleado ve los centros de cada lugar',
+  await withRole('authenticated', empAClaims, async () =>
+    Number(await scalar('select count(*) from public.parques_centros where parque_id = $1', [P.child]))),
+  1);
+eq('otra empresa no los ve',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    Number(await scalar('select count(*) from public.parques_centros'))),
+  0);
 
 // -----------------------------------------------------------------------------
 // Auditoría
