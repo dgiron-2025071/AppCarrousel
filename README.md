@@ -109,12 +109,23 @@ La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni
 
 ```text
 apps/mobile/lib/
-├── core/            # configuración, tema, errores, utilidades y widgets
-├── data/            # modelos y repositorios Supabase
-├── providers/       # providers de Riverpod, streams Realtime y catálogos
-├── features/        # auth, shell, dashboard, jornada, solicitudes, admin, perfil
-└── main.dart        # Supabase.initialize + ProviderScope
+├── app/             # raíz de la app (tema, localización, puerta de sesión)
+├── core/            # configuración, tema, errores, utilidades y Supabase
+└── features/
+    ├── auth/        # domain (entidades, contratos, casos de uso) / data / presentation
+    ├── catalogo/    # centros de costo y parques
+    ├── jornada/     # marcaje, jornadas y utilidades de geocerca
+    ├── solicitudes/ # horas extras del especialista
+    ├── admin/       # aprobaciones, invitaciones y controladores
+    ├── dashboard/   # resumen del empleado
+    ├── perfil/      # cuenta y sesión
+    └── shell/       # navegación y puerta de sesión
 ```
+
+Cada módulo respeta la misma dirección de dependencias: `presentation` → `domain`,
+`data` → `domain`. El dominio no importa Supabase ni Flutter; las entidades son
+puras y los mapeos de filas viven en `data/mappers`. Los providers de Riverpod
+se exponen por módulo y `main.dart` solo inicializa Supabase y monta la app.
 
 ## Configuración de la app
 
@@ -209,6 +220,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-12 | Migración `0022` — quitar los claims desactiva el perfil | `dgiron-2025071` | [#51](https://github.com/dgiron-2025071/AppCarrousel/pull/51) | Mergeado a `develop` | 225 pruebas OK |
 | 2026-11-12 | Arnés — invariantes de RLS, `anon` y `SECURITY DEFINER` | `dgiron-2025071` | [#52](https://github.com/dgiron-2025071/AppCarrousel/pull/52) | Mergeado a `develop` | 228 pruebas OK |
 | 2026-11-12 | Arnés — funciones no ejecutables por `PUBLIC`/`anon` | `dgiron-2025071` | [#53](https://github.com/dgiron-2025071/AppCarrousel/pull/53) | Mergeado a `develop` | 229 pruebas OK |
+| 2026-11-13 | App Flutter — Clean Architecture por módulos | `dgiron-2025071` | [#55](https://github.com/dgiron-2025071/AppCarrousel/pull/55) | Mergeado a `develop` | `flutter analyze`, 28 pruebas |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 

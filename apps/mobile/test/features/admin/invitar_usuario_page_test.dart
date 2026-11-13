@@ -1,10 +1,13 @@
 import 'package:carrousel_app/core/errors/error_messages.dart';
-import 'package:carrousel_app/data/models/centro_costo.dart';
-import 'package:carrousel_app/data/models/invitacion_usuario.dart';
-import 'package:carrousel_app/data/models/perfil.dart';
-import 'package:carrousel_app/data/repositories/invitacion_repository.dart';
-import 'package:carrousel_app/features/admin/invitar_usuario_page.dart';
-import 'package:carrousel_app/providers/app_providers.dart';
+import 'package:carrousel_app/features/catalogo/domain/entities/centro_costo.dart';
+import 'package:carrousel_app/features/admin/domain/entities/invitacion_usuario.dart';
+import 'package:carrousel_app/features/auth/domain/entities/perfil.dart';
+import 'package:carrousel_app/features/auth/domain/entities/rol_usuario.dart';
+import 'package:carrousel_app/features/admin/domain/repositories/invitacion_repository.dart';
+import 'package:carrousel_app/features/admin/presentation/pages/invitar_usuario_page.dart';
+import 'package:carrousel_app/features/admin/presentation/providers/admin_providers.dart';
+import 'package:carrousel_app/features/auth/presentation/providers/auth_providers.dart';
+import 'package:carrousel_app/features/catalogo/presentation/providers/catalogo_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,7 +16,7 @@ const _admin = Perfil(
   id: 'admin-id',
   empresaId: 'empresa-id',
   centroCostoId: 'centro-admin',
-  rol: 'admin',
+  rol: RolUsuario.admin,
   nombreCompleto: 'Admin Carrousel',
 );
 
@@ -21,7 +24,7 @@ const _empleado = Perfil(
   id: 'empleado-id',
   empresaId: 'empresa-id',
   centroCostoId: 'centro-admin',
-  rol: 'empleado',
+  rol: RolUsuario.empleado,
   nombreCompleto: 'Empleado Carrousel',
 );
 
@@ -36,23 +39,23 @@ const _centros = [
   CentroCosto(id: 'centro-otro', codigo: 'CO', nombre: 'Centro Otro'),
 ];
 
-class _FakeInvitacionGateway implements InvitacionGateway {
+class _FakeInvitacionGateway implements InvitacionRepository {
   _FakeInvitacionGateway({this.error});
 
   final Object? error;
-  final llamadas = <Map<String, String>>[];
+  final llamadas = <Map<String, Object?>>[];
 
   @override
   Future<InvitacionUsuario> invitar({
     required String email,
     required String nombreCompleto,
-    required String rol,
+    required RolUsuario rol,
     required String centroCostoId,
   }) async {
     llamadas.add({
       'email': email,
       'nombre_completo': nombreCompleto,
-      'rol': rol,
+      'rol': rol.name,
       'centro_costo_id': centroCostoId,
     });
     if (error != null) throw error!;
