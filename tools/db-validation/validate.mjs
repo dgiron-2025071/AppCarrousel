@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { parsearCsv } from '../importar-ceco/lib/csv.mjs';
+import { construirPlan, generarSql } from '../importar-ceco/lib/ceco.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
@@ -2921,6 +2923,88 @@ eq('el reporte marca la jornada abierta',
     `, [J.grandAbierta])).rows[0];
     return [fila.abierta, fila.salida_en, fila.horas_ok];
   }), [true, null, true]);
+
+// -----------------------------------------------------------------------------
+// Importación de centros de costo (tools/importar-ceco)
+// -----------------------------------------------------------------------------
+group('Importación de centros de costo');
+
+const csvCentros = [
+  'codigo,nombre,padre',
+  'IMP100,Parque Importado,',
+  'IMP110,Operaciones Importadas,IMP100',
+  'IMP120,Mantenimiento Importado,IMP110',
+].join('\n');
+const planImport = construirPlan(parsearCsv(csvCentros).filas);
+
+eq('el plan del CSV no tiene errores ni advertencias',
+  [planImport.errores, planImport.advertencias], [[], []]);
+
+await q(generarSql({ empresa: 'EMPRESA-A', nodos: planImport.nodos }));
+
+eq('la importación crea los tres centros',
+  await scalar(`
+    select count(*)::int
+    from public.centros_costo c
+    join public.empresas e on e.id = c.empresa_id
+    where e.codigo = 'EMPRESA-A'
+      and c.codigo in ('IMP100', 'IMP110', 'IMP120')
+  `), 3);
+
+eq('la importación arma la jerarquía',
+  await scalar(`
+    select count(*)::int
+    from public.centros_costo c
+    join public.empresas e on e.id = c.empresa_id
+    join public.centros_costo p on p.id = c.padre_id
+    where e.codigo = 'EMPRESA-A'
+      and (c.codigo, p.codigo) in (('IMP110', 'IMP100'), ('IMP120', 'IMP110'))
+  `), 2);
+
+await q(generarSql({ empresa: 'EMPRESA-A', nodos: planImport.nodos }));
+eq('repetir la importación no duplica centros',
+  await scalar(`
+    select count(*)::int
+    from public.centros_costo c
+    join public.empresas e on e.id = c.empresa_id
+    where e.codigo = 'EMPRESA-A'
+      and c.codigo like 'IMP%'
+  `), 3);
+
+const planRenombrado = construirPlan([
+  { linea: 2, codigo: 'IMP100', nombre: 'Parque Importado', padre: '' },
+  { linea: 3, codigo: 'IMP110', nombre: 'Operaciones Renombradas', padre: 'IMP100' },
+  { linea: 4, codigo: 'IMP120', nombre: 'Mantenimiento Importado', padre: 'IMP110' },
+]);
+await q(generarSql({ empresa: 'EMPRESA-A', nodos: planRenombrado.nodos }));
+eq('repetir la importación actualiza el nombre',
+  await scalar(`
+    select c.nombre::text
+    from public.centros_costo c
+    join public.empresas e on e.id = c.empresa_id
+    where e.codigo = 'EMPRESA-A' and c.codigo = 'IMP110'
+  `), 'Operaciones Renombradas');
+
+const planHuerfano = construirPlan([
+  { linea: 2, codigo: 'IMP900', nombre: 'Huérfano', padre: 'NOEXISTE' },
+]);
+let errorImport = null;
+try {
+  await q(generarSql({
+    empresa: 'EMPRESA-A',
+    nodos: planHuerfano.nodos,
+    advertencias: planHuerfano.advertencias,
+  }));
+} catch (error) {
+  errorImport = error;
+}
+if (errorImport) await q('rollback');
+
+ok('la importación se aborta si el padre no existe',
+  /Padres no encontrados/.test(errorImport?.message ?? ''),
+  `message=${errorImport?.message}`);
+eq('el centro huérfano no queda creado',
+  await scalar(`select count(*)::int from public.centros_costo where codigo = 'IMP900'`), 0);
 
 // -----------------------------------------------------------------------------
 // Sin claims y anon

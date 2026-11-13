@@ -1,0 +1,7 @@
+codigo,nombre,padre
+100,Parque Central,
+110,Operaciones,100
+111,Atracciones,110
+120,Mantenimiento,100
+200,Parque Norte,
+210,Operaciones Norte,200

@@ -1,0 +1,16 @@
+{
+  "name": "@appcarrousel/importar-ceco",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Importa centros de costo desde CSV con normalización de códigos y SQL idempotente.",
+  "bin": {
+    "importar-ceco": "./index.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
