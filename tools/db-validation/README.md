@@ -2,8 +2,10 @@
 
 Suite que aplica las migraciones de `supabase/migrations` sobre un PostgreSQL
 17.9 **portátil** y prueba la jerarquía, la geocerca, las jornadas, las
-solicitudes de horas extras, las políticas RLS, la separación de roles y
-Realtime.
+solicitudes de horas extras, los puestos y el autorizador jerárquico, los
+horarios, el registro por código de empresa, los CECO por lugar, las
+incidencias y ajustes, los reportes, las políticas RLS, la separación de roles
+y Realtime.
 
 No requiere Docker, WSL2 ni permisos de administrador: `embedded-postgres`
 descarga un binario de PostgreSQL y lo ejecuta como proceso de usuario.
@@ -13,7 +15,13 @@ descarga un binario de PostgreSQL y lo ejecuta como proceso de usuario.
 ```bash
 pnpm --dir tools/db-validation install
 pnpm --dir tools/db-validation test
+pnpm --dir tools/importar-ceco test
 ```
+
+La suite del arnés también ejecuta el SQL generado por
+[`tools/importar-ceco`](../importar-ceco/README.md) contra este PostgreSQL real:
+valida la creación idempotente de la jerarquía, el renombrado y el aborto
+completo cuando falta un padre.
 
 - `PGPORT` permite cambiar el puerto (por defecto `55434`).
 - `--keep` conserva el directorio temporal del clúster para inspeccionarlo.
@@ -42,7 +50,8 @@ dejan datos ni privilegios modificados.
 
 ## Cobertura
 
-- Estructura: tablas, extensión `citext`/`pgcrypto`, RLS y número de políticas.
+- Estructura: las 12 tablas de negocio, extensión `citext`/`pgcrypto`, RLS en
+  todas, al menos una política por tabla y un mínimo de 18 políticas.
 - Invariantes estructurales: toda tabla pública tiene RLS, `anon` no tiene
   escritura, toda función `SECURITY DEFINER` fija `search_path` vacío y ninguna
   función de `public`/`private` queda ejecutable por `PUBLIC`/`anon`, para que
@@ -109,16 +118,49 @@ dejan datos ni privilegios modificados.
   vuelve a ejecutar la validación del revisor.
 - Realtime: `jornadas` y `solicitudes_horas_extras` en la publicación
   `supabase_realtime` con `replica identity full`.
+- Puestos y autorizador: `puestos` aislados por empresa, código único, nombre no
+  vacío y solo el admin crea o edita; `perfiles.puesto_id` se materializa desde
+  `app_metadata` y el cliente no lo escribe. El jefe de centro debe ser un admin
+  activo de la misma empresa; `jefe_de_centro()` resuelve el ancestro más cercano
+  y `es_autorizador()` distingue al jefe de su subárbol de otro admin.
+- Horarios y GPS: un horario por empleado y día ISO, tolerancias acotadas,
+  entrada distinta de salida, lectura por empleado o subárbol; zona horaria IANA
+  y umbral de precisión GPS por empresa (mínimo 10 m); `fecha_local()` y
+  `horario_del_dia()` usan esa zona.
+- Registro por código: `solicitar_registro` valida el código de empresa, exige
+  que el usuario aún no tenga perfil, no acumula pendientes y permite reintentar
+  tras un rechazo; `aprobar_registro` siempre crea un `empleado`, fija centro y
+  puesto dentro del alcance y actualiza los claims; `rechazar_registro` exige un
+  motivo. El cliente no inserta en `registros_pendientes`.
+- CECO por lugar: `parques_centros` mantiene exactamente un principal por
+  parque, sincronizado con `parques.centro_costo_id`; mover el parque desactiva
+  el principal anterior y activa el nuevo conservando el historial. La solicitud
+  guarda `parque_id` y exige que el CECO esté habilitado en ese lugar y en la
+  misma empresa; las solicitudes históricas sin lugar siguen siendo válidas.
+- Incidencias y ajustes: al cerrar se calculan `llegada_tarde`,
+  `salida_temprana`, `parque_distinto` y `gps_impreciso` con la zona y el horario
+  del empleado. `jornadas_ajustes` es inmutable (sin UPDATE ni DELETE) y
+  `ajustar_jornada` exige motivo y rango coherente, rechaza jornadas abiertas o
+  de otra empresa, actualiza la jornada y recalcula las incidencias.
+- Reportes: `reporte_horas_extras` y `cumplimiento_jornadas` usan
+  `security_invoker = true`; el empleado solo ve lo propio, el admin su subárbol
+  y ninguna empresa ve a otra. El cálculo de horas y el cruce con horario e
+  incidencias se validan con datos reales.
+- Importación de CECO: el CSV se normaliza y se convierte en SQL idempotente; el
+  arnés comprueba creación, jerarquía, renombrado, repetición sin duplicados y
+  rollback completo cuando falta un padre.
 - Perfiles: materialización desde `app_metadata`, alcance inválido, cambio
   administrativo de rol y borrado en cascada. Si una actualización de
   `auth.users` deja los claims incompletos, el perfil existente se desactiva;
   restaurar los claims actualiza el alcance pero no reactiva una baja.
 - No autoelevación: `authenticated` no puede escribir `rol`, `empresa_id`,
-  `empleado_id`, `centro_costo_id`, `ruta`, `actualizado_por` ni `auth.users`.
-- Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla.
+  `empleado_id`, `centro_costo_id`, `puesto_id`, `ruta`, `actualizado_por` ni
+  `auth.users`.
+- Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla ni a
+  las vistas de reporte.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **229 pruebas OK, 0 FAIL**.
+Resultado actual: **337 pruebas OK, 0 FAIL**.
 
 ## Límites
 

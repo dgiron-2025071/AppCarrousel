@@ -1,0 +1,4 @@
+# Datos reales de importación (no versionados).
+datos/
+salida/
+*.local.csv
