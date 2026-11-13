@@ -10,7 +10,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 |---|---|---|
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, dashboard, marcaje, horas extras, aprobaciones, perfil) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
-| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`-`0022` implementadas y validadas |
+| Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`-`0028` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 31 pruebas de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
@@ -63,7 +63,7 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **0021** Revalidación al reasignar: cambiar el especialista o la empresa de una solicitud vuelve a exigir un revisor admin activo y distinto del especialista.
 - [x] **0022** Quitar los claims revoca el perfil: si `app_metadata` queda incompleto se desactiva el perfil existente, y restaurar los claims no reactiva una baja.
 - [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
-- [x] **229 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] **330 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **31 pruebas de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
@@ -90,6 +90,18 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 
 El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 31 pruebas de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, invitación y rollback); su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
 
+## Estado del backend — MT-02
+
+> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56). Las migraciones `0023`-`0028` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
+
+- [x] **0023** `puestos` por empresa y `perfiles.puesto_id` materializado desde `app_metadata.puesto_id`. `centros_costo.jefe_id` designa al administrador responsable; `private.jefe_de_centro()` sube por `ruta` al jefe más cercano y `private.es_autorizador()` resuelve la cadena. El jefe debe ser un admin activo de la misma empresa, así que la firma de revisión de `0019`-`0021` sigue siendo válida.
+- [x] **0024** Horario semanal por empleado y día ISO (`horarios`), zona horaria IANA y umbral de precisión GPS por empresa, con `private.fecha_local()` y `private.horario_del_dia()` para calcular llegadas y salidas.
+- [x] **0025** Registro propio con código de empresa: `registros_pendientes` y las RPC `solicitar_registro`, `aprobar_registro` y `rechazar_registro`. El alta siempre nace como `empleado`; el admin asignador fija centro y puesto dentro de su alcance y el trigger de Auth materializa el perfil.
+- [x] **0026** CECOs adicionales por lugar (`parques_centros`): backfill del CECO principal, sincronización al mover el parque conservando las filas históricas, FK compuesta y `solicitudes_horas_extras.parque_id`. El formulario elige primero el lugar y luego un CECO habilitado para ese lugar.
+- [x] **0027** Incidencias automáticas (`llegada_tarde`, `salida_temprana`, `parque_distinto`, `gps_impreciso`), historial inmutable `jornadas_ajustes` y RPC `ajustar_jornada` con motivo obligatorio. El ajuste administrativo no revalida la geocerca porque corrige tiempos, no marcajes.
+- [x] **0028** Vistas `reporte_horas_extras` y `cumplimiento_jornadas` con `security_invoker = true` para heredar la RLS de las tablas base y permitir exportaciones sin lógica de permisos duplicada.
+- [x] Pruebas de estructura y funcionales: 12 tablas de negocio con RLS, cobertura de políticas por tabla, aislamiento cross-tenant, autorizador jerárquico, sincronización de puesto, registro por código, CECO por lugar, incidencias, inmutabilidad de ajustes y reportes con RLS.
+
 ## Aplicación móvil
 
 La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni sesiones de ejemplo**. Toda cuenta debe existir previamente en Supabase Auth.
@@ -109,12 +121,23 @@ La app arranca siempre en la pantalla de inicio de sesión: **no hay usuarios ni
 
 ```text
 apps/mobile/lib/
-├── core/            # configuración, tema, errores, utilidades y widgets
-├── data/            # modelos y repositorios Supabase
-├── providers/       # providers de Riverpod, streams Realtime y catálogos
-├── features/        # auth, shell, dashboard, jornada, solicitudes, admin, perfil
-└── main.dart        # Supabase.initialize + ProviderScope
+├── app/             # raíz de la app (tema, localización, puerta de sesión)
+├── core/            # configuración, tema, errores, utilidades y Supabase
+└── features/
+    ├── auth/        # domain (entidades, contratos, casos de uso) / data / presentation
+    ├── catalogo/    # centros de costo y parques
+    ├── jornada/     # marcaje, jornadas y utilidades de geocerca
+    ├── solicitudes/ # horas extras del especialista
+    ├── admin/       # aprobaciones, invitaciones y controladores
+    ├── dashboard/   # resumen del empleado
+    ├── perfil/      # cuenta y sesión
+    └── shell/       # navegación y puerta de sesión
 ```
+
+Cada módulo respeta la misma dirección de dependencias: `presentation` → `domain`,
+`data` → `domain`. El dominio no importa Supabase ni Flutter; las entidades son
+puras y los mapeos de filas viven en `data/mappers`. Los providers de Riverpod
+se exponen por módulo y `main.dart` solo inicializa Supabase y monta la app.
 
 ## Configuración de la app
 
@@ -209,6 +232,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-12 | Migración `0022` — quitar los claims desactiva el perfil | `dgiron-2025071` | [#51](https://github.com/dgiron-2025071/AppCarrousel/pull/51) | Mergeado a `develop` | 225 pruebas OK |
 | 2026-11-12 | Arnés — invariantes de RLS, `anon` y `SECURITY DEFINER` | `dgiron-2025071` | [#52](https://github.com/dgiron-2025071/AppCarrousel/pull/52) | Mergeado a `develop` | 228 pruebas OK |
 | 2026-11-12 | Arnés — funciones no ejecutables por `PUBLIC`/`anon` | `dgiron-2025071` | [#53](https://github.com/dgiron-2025071/AppCarrousel/pull/53) | Mergeado a `develop` | 229 pruebas OK |
+| 2026-11-13 | App Flutter — Clean Architecture por módulos | `dgiron-2025071` | [#55](https://github.com/dgiron-2025071/AppCarrousel/pull/55) | Mergeado a `develop` | `flutter analyze`, 28 pruebas |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
