@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'core/config/env.dart';
-import 'core/theme/app_theme.dart';
-import 'features/shell/root_gate.dart';
+import 'package:carrousel_app/app/carrousel_app.dart';
+import 'package:carrousel_app/core/config/env.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,27 +33,4 @@ Future<void> main() async {
       child: CarrouselApp(initError: initError),
     ),
   );
-}
-
-class CarrouselApp extends StatelessWidget {
-  const CarrouselApp({super.key, this.initError});
-
-  final Object? initError;
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Carrousel',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      locale: const Locale('es'),
-      supportedLocales: const [Locale('es'), Locale('en')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: RootGate(initError: initError),
-    );
-  }
 }
