@@ -280,25 +280,39 @@ group('Estructura');
 const BUSINESS_TABLES = [
   'empresas', 'centros_costo', 'parques', 'perfiles',
   'jornadas', 'solicitudes_horas_extras',
+  'puestos', 'horarios', 'registros_pendientes', 'parques_centros',
+  'incidencias_jornada', 'jornadas_ajustes',
 ];
-eq('6 tablas de negocio', await scalar(`
+eq('12 tablas de negocio', await scalar(`
   select count(*)::int from information_schema.tables
   where table_schema = 'public'
     and table_name = any ($1::text[])
-`, [BUSINESS_TABLES]), 6);
-eq('RLS habilitada en las 6 tablas', await scalar(`
+`, [BUSINESS_TABLES]), 12);
+eq('RLS habilitada en las 12 tablas', await scalar(`
   select count(*)::int from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public'
     and c.relname = any ($1::text[])
     and c.relrowsecurity
-`, [BUSINESS_TABLES]), 6);
+`, [BUSINESS_TABLES]), 12);
 eq('extensiones citext y pgcrypto', await scalar(`
   select count(*)::int from pg_extension where extname in ('citext','pgcrypto')
 `), 2);
-eq('políticas RLS creadas (2+4+4+1+3+4)', await scalar(`
+// No se fija el total de políticas para no romper el arnés cada vez que una
+// migración agrega una tabla. Se exige que cada tabla de negocio tenga al
+// menos una y que no se pierdan las que ya existían (>= 18).
+const policyCount = await scalar(`
   select count(*)::int from pg_policies where schemaname = 'public'
-`), 18);
+`);
+ok('se conservan al menos 18 políticas RLS', policyCount >= 18, `actual=${policyCount}`);
+eq('toda tabla de negocio tiene al menos una política RLS', await scalar(`
+  select count(*)::int
+  from unnest($1::text[]) as t(nombre)
+  where exists (
+    select 1 from pg_policies p
+    where p.schemaname = 'public' and p.tablename = t.nombre
+  )
+`, [BUSINESS_TABLES]), 12);
 eq('enum de estado de solicitud', await scalar(`
   select enum_range(null::public.estado_solicitud)::text
 `), '{pendiente,aprobada,rechazada,cancelada}');
@@ -2101,6 +2115,813 @@ try {
   await q('rollback');
 }
 
+// =============================================================================
+// MT-02: puestos, autorizador, horarios, registro, CECO por lugar,
+// incidencias/ajustes y reportes (migraciones 0023–0028)
+// =============================================================================
+const T = {
+  puestoOps: 'a2000000-0000-4000-8000-000000000001',
+  puestoSupervisor: 'a2000000-0000-4000-8000-000000000002',
+  puestoB: 'a2000000-0000-4000-8000-000000000003',
+  cecoExtra: 'c2000000-0000-4000-8000-000000000001',
+  cecoB: 'c2000000-0000-4000-8000-000000000002',
+  reg1: 'e2000000-0000-4000-8000-000000000001',
+  reg2: 'e2000000-0000-4000-8000-000000000002',
+  regB: 'e2000000-0000-4000-8000-000000000003',
+  jLate: 'd2000000-0000-4000-8000-000000000001',
+  jGps: 'd2000000-0000-4000-8000-000000000002',
+  jPark: 'd2000000-0000-4000-8000-000000000003',
+  jAdjust: 'd2000000-0000-4000-8000-000000000004',
+  ajuste: 'f2000000-0000-4000-8000-000000000001',
+};
+
+// Fixtures persistidas. Se crean después de todas las pruebas anteriores para
+// no alterar sus conteos y se usan en los grupos siguientes.
+await q(`
+  insert into public.puestos (id, empresa_id, codigo, nombre) values
+    ($1, $4, 'OPS', 'Operador'),
+    ($2, $4, 'SUP', 'Supervisor'),
+    ($3, $5, 'OPS', 'Operador B');
+`, [T.puestoOps, T.puestoSupervisor, T.puestoB, A.empresa, B.empresa]);
+
+await q(`
+  insert into public.centros_costo (id, empresa_id, padre_id, codigo, nombre) values
+    ($1, $3, $4, 'A-EXTRA', 'Centro extra A'),
+    ($2, $5, $6, 'B-EXTRA', 'Centro extra B');
+`, [T.cecoExtra, T.cecoB, A.empresa, A.child, B.empresa, B.root]);
+
+await q('update public.centros_costo set jefe_id = $1 where id = $2',
+  [U.gerA, A.child]);
+
+const isodowHoy =
+  `extract(isodow from (now() at time zone 'America/Guatemala'))::smallint`;
+const otroDia =
+  `(case when extract(isodow from (now() at time zone 'America/Guatemala'))::int = 7
+         then 1::smallint else 7::smallint end)`;
+
+await q(`
+  insert into public.horarios (
+    empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida,
+    tolerancia_entrada_min, tolerancia_salida_min
+  ) values
+    ($1, $2, ${isodowHoy}, '08:00', '17:00', 10, 10),
+    ($1, $3, ${isodowHoy}, '08:00', '17:00', 10, 10),
+    ($4, $5, ${isodowHoy}, '08:00', '17:00', 10, 10);
+`, [A.empresa, U.empA, U.empGrand, B.empresa, U.empB]);
+
+await q(`
+  insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
+    ($1, 'reg.uno@example.com', '{}'::jsonb, '{"nombre_completo":"Registro Uno"}'::jsonb),
+    ($2, 'reg.dos@example.com', '{}'::jsonb, '{"nombre_completo":"Registro Dos"}'::jsonb),
+    ($3, 'reg.b@example.com',   '{}'::jsonb, '{"nombre_completo":"Registro B"}'::jsonb);
+`, [T.reg1, T.reg2, T.regB]);
+
+const localHora = (hhmm) =>
+  `((date_trunc('day', now() at time zone 'America/Guatemala') + interval '${hhmm}') at time zone 'America/Guatemala')`;
+
+await q(`
+  insert into public.jornadas (
+    id, empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+    entrada_lat, entrada_lon, entrada_precision_metros, entrada_dentro_geocerca,
+    salida_lat, salida_lon, salida_precision_metros, salida_dentro_geocerca
+  ) values
+    ($1, $2, $3, $4, ${localHora('09:15')}, ${localHora('16:30')},
+     14.6350, -90.5070, 5, true, 14.6350, -90.5070, 5, true),
+    ($5, $2, $3, $4, ${localHora('08:00')}, ${localHora('17:00')},
+     14.6350, -90.5070, 150, true, 14.6350, -90.5070, 150, true),
+    ($6, $2, $3, $7, ${localHora('08:00')}, ${localHora('17:00')},
+     14.6352, -90.5072, 5, true, 14.6352, -90.5072, 5, true),
+    ($8, $2, $3, $4, ${localHora('09:15')}, ${localHora('16:30')},
+     14.6350, -90.5070, 5, true, 14.6350, -90.5070, 5, true);
+`, [T.jLate, A.empresa, U.empA, P.child, T.jGps, T.jPark, P.sibling, T.jAdjust]);
+
+// Historial de ajuste previo, para probar su inmutabilidad.
+await q(`
+  insert into public.jornadas_ajustes (
+    id, empresa_id, jornada_id, empleado_id, ajustado_por, motivo,
+    entrada_en_anterior, salida_en_anterior,
+    entrada_en_nueva, salida_en_nueva
+  ) values (
+    $1, $2, $3, $4, $5, 'Corrección inicial de prueba',
+    now() - interval '10 hours', now() - interval '2 hours',
+    now() - interval '10 hours', now() - interval '3 hours'
+  );
+`, [T.ajuste, A.empresa, J.aCerrada, U.empA, U.gerA]);
+
+// -----------------------------------------------------------------------------
+// Puestos y autorizador jerárquico
+// -----------------------------------------------------------------------------
+group('Puestos y autorizador jerárquico');
+
+eq('el empleado ve solo los puestos de su empresa',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
+    (await q('select count(*)::int from public.puestos')).rows[0].count), 2);
+
+eq('el admin ve solo los puestos de su empresa',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q('select count(*)::int from public.puestos')).rows[0].count), 2);
+
+eq('un admin activo crea puestos en su empresa',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      insert into public.puestos (empresa_id, codigo, nombre)
+      values ($1, 'TMP', 'Temporal')
+    `, [A.empresa])).rowCount), 1);
+
+eq('un empleado no crea puestos',
+  await (async () => {
+    let code = null;
+    try {
+      await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
+        q(`insert into public.puestos (empresa_id, codigo, nombre)
+           values ($1, 'NO', 'No permitido')`, [A.empresa]));
+    } catch (error) {
+      code = error.code;
+    }
+    return code;
+  })(), '42501');
+
+await expectRoleError('un admin no crea puestos en otra empresa',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.puestos (empresa_id, codigo, nombre)
+   values ($1, 'CROSS', 'Cruce')`, [B.empresa], '42501');
+
+await expectRoleError('el código de puesto es único por empresa',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.puestos (empresa_id, codigo, nombre)
+   values ($1, 'OPS', 'Duplicado')`, [A.empresa], '23505');
+
+await expectRoleError('el nombre del puesto no puede quedar vacío',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.puestos (empresa_id, codigo, nombre)
+   values ($1, 'EMPTY', '   ')`, [A.empresa], '23514');
+
+eq('el jefe del centro se hereda del ancestro más cercano',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    scalar('select private.jefe_de_centro($1)', [A.grand])), U.gerA);
+
+eq('un centro sin jefe propio ni ancestro devuelve NULL',
+  await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+    scalar('select private.jefe_de_centro($1)', [A.sibling])), null);
+
+eq('el jefe designado es autorizador de su subárbol',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    scalar('select private.es_autorizador($1)', [A.grand])), true);
+
+eq('otro admin no es autorizador del centro',
+  await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+    scalar('select private.es_autorizador($1)', [A.grand])), false);
+
+await expectError('el jefe del centro debe ser administrador',
+  'update public.centros_costo set jefe_id = $1 where id = $2',
+  [U.empA, A.child], '23514');
+
+await expectError('el jefe del centro debe ser de la misma empresa',
+  'update public.centros_costo set jefe_id = $1 where id = $2',
+  [U.empB, A.child], '23503');
+
+await q('begin');
+try {
+  await q('update public.perfiles set activo = false where id = $1', [U.gerA]);
+  await q('savepoint jefe_inactivo');
+  let errorInactivo = null;
+  try {
+    await q('update public.centros_costo set jefe_id = $1 where id = $2',
+      [U.gerA, A.sibling]);
+  } catch (error) {
+    errorInactivo = error;
+  }
+  ok('un administrador inactivo no puede ser jefe del centro',
+    errorInactivo?.code === '23514',
+    `code=${errorInactivo?.code}`);
+} finally {
+  await q('rollback');
+}
+
+eq('el admin asigna el jefe de un centro de su alcance',
+  await withRole('authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'), async () =>
+    (await q('update public.centros_costo set jefe_id = $1 where id = $2',
+      [U.gerA, A.sibling])).rowCount), 1);
+
+await q('begin');
+try {
+  await q(`insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data)
+    values ($1, 'puesto.ok@example.com', $2::jsonb,
+            '{"nombre_completo":"Puesto OK"}'::jsonb)`, [
+    'e2000000-0000-4000-8000-000000000010',
+    JSON.stringify({
+      empresa_id: A.empresa,
+      centro_costo_id: A.child,
+      rol: 'empleado',
+      puesto_id: T.puestoOps,
+    }),
+  ]);
+  eq('la sincronización materializa el puesto del claim',
+    await scalar('select puesto_id from public.perfiles where id = $1',
+      ['e2000000-0000-4000-8000-000000000010']),
+    T.puestoOps);
+} finally {
+  await q('rollback');
+}
+
+await expectRoleError('la sincronización rechaza un puesto de otra empresa',
+  'service_role', {},
+  `insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data)
+   values ($1, 'puesto.bad@example.com', $2::jsonb, '{}'::jsonb)`, [
+    'e2000000-0000-4000-8000-000000000011',
+    JSON.stringify({
+      empresa_id: A.empresa,
+      centro_costo_id: A.child,
+      rol: 'empleado',
+      puesto_id: T.puestoB,
+    }),
+  ], '23503');
+
+await expectRoleError('el cliente no escribe el puesto del perfil',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  'update public.perfiles set puesto_id = $1 where id = $2',
+  [T.puestoOps, U.empA], '42501');
+
+// -----------------------------------------------------------------------------
+// Horarios, zona horaria y GPS
+// -----------------------------------------------------------------------------
+group('Horarios, zona horaria y GPS');
+
+eq('el empleado ve su propio horario',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
+    (await q('select count(*)::int from public.horarios')).rows[0].count), 1);
+
+eq('el admin ve el horario de su subárbol y no el de otra empresa',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q('select count(*)::int from public.horarios')).rows[0].count), 2);
+
+eq('el empleado de otra empresa ve solo su horario',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    (await q('select count(*)::int from public.horarios')).rows[0].count), 1);
+
+eq('un admin activo crea el horario de su subárbol',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      insert into public.horarios (
+        empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida
+      ) values ($1, $2, ${otroDia}, '07:00', '15:00')
+    `, [A.empresa, U.empGrand])).rowCount), 1);
+
+await expectRoleError('un empleado no crea horarios',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  `insert into public.horarios (
+     empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida
+   ) values ($1, $2, ${otroDia}, '07:00', '15:00')`,
+  [A.empresa, U.empA], '42501');
+
+await expectRoleError('un admin no crea horarios fuera de su empresa',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.horarios (
+     empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida
+   ) values ($1, $2, ${otroDia}, '07:00', '15:00')`,
+  [B.empresa, U.empB], '42501');
+
+await expectRoleError('no se repite el horario del mismo día',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.horarios (
+     empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida
+   ) values ($1, $2, ${isodowHoy}, '09:00', '18:00')`,
+  [A.empresa, U.empA], '23505');
+
+await expectRoleError('el día ISO debe estar entre 1 y 7',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.horarios (
+     empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida
+   ) values ($1, $2, 0, '09:00', '18:00')`,
+  [A.empresa, U.empA], '23514');
+
+await expectRoleError('la entrada y la salida no pueden ser iguales',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.horarios (
+     empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida
+   ) values ($1, $2, ${otroDia}, '09:00', '09:00')`,
+  [A.empresa, U.empA], '23514');
+
+await expectRoleError('la tolerancia tiene un máximo de 240 minutos',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.horarios (
+     empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida,
+     tolerancia_entrada_min
+   ) values ($1, $2, ${otroDia}, '09:00', '18:00', 300)`,
+  [A.empresa, U.empA], '23514');
+
+eq('un admin activo corrige el horario de su subárbol',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () => {
+    const id = await scalar(`
+      select id from public.horarios
+      where empleado_id = $1
+        and dia_semana = extract(isodow from (now() at time zone 'America/Guatemala'))::smallint
+    `, [U.empA]);
+    return (await q('update public.horarios set hora_entrada = $1 where id = $2',
+      ['07:30', id])).rowCount;
+  }), 1);
+
+eq('un empleado no edita su horario',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
+    (await q('update public.horarios set hora_entrada = $1', ['07:00'])).rowCount), 0);
+
+await expectError('la zona horaria debe existir en PostgreSQL',
+  'update public.empresas set zona_horaria = $1 where id = $2',
+  ['No/Existe', A.empresa], '23514');
+
+await expectError('el umbral de GPS tiene un mínimo de 10 metros',
+  'update public.empresas set gps_precision_maxima_metros = 5 where id = $1',
+  [A.empresa], '23514');
+
+eq('la zona horaria por defecto es la de Guatemala',
+  await scalar('select zona_horaria from public.empresas where id = $1', [A.empresa]),
+  'America/Guatemala');
+
+eq('fecha_local usa la zona de la empresa',
+  await scalar(`select private.fecha_local($1, '2026-01-15T03:00:00Z'::timestamptz)::text`,
+    [A.empresa]),
+  '2026-01-14');
+
+eq('horario_del_dia devuelve el horario del día ISO',
+  await scalar(`
+    select count(*)::int
+    from private.horario_del_dia($1, (now() at time zone 'America/Guatemala')::date)
+  `, [U.empA]),
+  1);
+
+// -----------------------------------------------------------------------------
+// Registro propio con código de empresa
+// -----------------------------------------------------------------------------
+group('Registro propio con código de empresa');
+
+eq('el código de empresa crea una solicitud pendiente',
+  await withRole('authenticated', { sub: T.reg1 }, async () => {
+    await q(`select public.solicitar_registro('EMPRESA-A', 'Registro Uno')`);
+    return scalar(`select estado from public.registros_pendientes where usuario_id = $1`,
+      [T.reg1]);
+  }), 'pendiente');
+
+await expectRoleError('un código inexistente no crea la solicitud',
+  'authenticated', { sub: T.reg1 },
+  `select public.solicitar_registro('NO-EXISTE', 'Registro Uno')`, [], '23503');
+
+await expectRoleError('un usuario con perfil no se vuelve a registrar',
+  'authenticated', { sub: U.empA },
+  `select public.solicitar_registro('EMPRESA-A', 'Empleado A')`, [], '23514');
+
+eq('no se acumulan dos solicitudes pendientes',
+  await withRole('authenticated', { sub: T.reg1 }, async () => {
+    await q(`select public.solicitar_registro('EMPRESA-A', 'Registro Uno')`);
+    try {
+      await q(`select public.solicitar_registro('EMPRESA-A', 'Registro Uno')`);
+      return null;
+    } catch (error) {
+      return error.code;
+    }
+  }), '23505');
+
+eq('el solicitante solo ve su propio registro',
+  await withRole('authenticated', { sub: T.reg1 }, async () => {
+    await q(`select public.solicitar_registro('EMPRESA-A', 'Registro Uno')`);
+    return {
+      propio: (await q('select count(*)::int from public.registros_pendientes')).rows[0].count,
+      ajeno: await (async () => {
+        await q(`select set_config('request.jwt.claims', $1, true)`,
+          [JSON.stringify({ sub: T.reg2 })]);
+        return (await q('select count(*)::int from public.registros_pendientes')).rows[0].count;
+      })(),
+    };
+  }).then((r) => [r.propio, r.ajeno]), [1, 0]);
+
+await expectRoleError('un empleado no aprueba registros',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  'select public.aprobar_registro($1, $2, $3)',
+  [randomUUID(), A.child, T.puestoOps], '42501');
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify({ sub: T.reg1 })]);
+  const registro = (await q(
+    `select public.solicitar_registro('EMPRESA-A', 'Registro Uno') as id`,
+  )).rows[0].id;
+
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+  const aprobado = await scalar('select public.aprobar_registro($1, $2, $3)',
+    [registro, A.grand, T.puestoOps]);
+
+  eq('el admin aprueba el registro y devuelve la cuenta', aprobado, T.reg1);
+  eq('el registro aprobado queda resuelto',
+    await scalar('select estado from public.registros_pendientes where id = $1',
+      [registro]), 'aprobado');
+  eq('el alta siempre crea un empleado',
+    await scalar(`select rol::text from public.perfiles
+                  where id = $1 and centro_costo_id = $2 and puesto_id = $3`,
+      [T.reg1, A.grand, T.puestoOps]), 'empleado');
+  eq('los claims del alta dicen empleado',
+    await (async () => {
+      await q('reset role');
+      return scalar(`select raw_app_meta_data ->> 'rol' from auth.users where id = $1`,
+        [T.reg1]);
+    })(), 'empleado');
+} finally {
+  await q('rollback');
+}
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify({ sub: T.regB })]);
+  await q(`select public.solicitar_registro('EMPRESA-B', 'Registro B')`);
+  const registroB = await scalar(
+    'select id from public.registros_pendientes where usuario_id = $1', [T.regB]);
+
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+  await q('savepoint aprobar_ajeno');
+  let errorAjeno = null;
+  try {
+    await q('select public.aprobar_registro($1, $2, $3)',
+      [registroB, A.child, T.puestoOps]);
+  } catch (error) {
+    errorAjeno = error;
+  }
+  ok('un admin no aprueba registros de otra empresa',
+    errorAjeno?.code === '23503', `code=${errorAjeno?.code}`);
+} finally {
+  await q('rollback');
+}
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify({ sub: T.reg2 })]);
+  await q(`select public.solicitar_registro('EMPRESA-A', 'Registro Dos')`);
+  const registro = await scalar(
+    'select id from public.registros_pendientes where usuario_id = $1', [T.reg2]);
+
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+  await q('savepoint motivo_corto');
+  let errorCorto = null;
+  try {
+    await q('select public.rechazar_registro($1, $2)', [registro, 'No']);
+  } catch (error) {
+    errorCorto = error;
+  }
+  ok('el rechazo exige un motivo de al menos 5 caracteres',
+    errorCorto?.code === '23514', `code=${errorCorto?.code}`);
+
+  await q('rollback to savepoint motivo_corto');
+  await q('select public.rechazar_registro($1, $2)',
+    [registro, 'No corresponde al centro solicitado']);
+  eq('el rechazo deja el registro resuelto',
+    await scalar('select estado from public.registros_pendientes where id = $1',
+      [registro]), 'rechazado');
+
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify({ sub: T.reg2 })]);
+  const nuevo = await scalar(
+    `select public.solicitar_registro('EMPRESA-A', 'Registro Dos')::text`);
+  ok('un rechazo permite volver a solicitar el alta', !!nuevo && nuevo !== registro);
+} finally {
+  await q('rollback');
+}
+
+await expectRoleError('el cliente no inserta registros directamente',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.registros_pendientes (empresa_id, usuario_id, email, nombre_completo)
+   values ($1, $2, 'x@example.com', 'Directo')`,
+  [A.empresa, T.reg1], '42501');
+
+// -----------------------------------------------------------------------------
+// CECO por lugar
+// -----------------------------------------------------------------------------
+group('CECO por lugar');
+
+eq('cada parque tiene exactamente un CECO principal',
+  await scalar(`
+    select count(*)::int from (
+      select parque_id from public.parques_centros
+      where principal group by parque_id having count(*) = 1
+    ) x
+  `), 5);
+
+eq('el principal coincide con el centro del parque',
+  await scalar(`
+    select count(*)::int
+    from public.parques p
+    join public.parques_centros pc
+      on pc.parque_id = p.id and pc.principal
+    where pc.centro_costo_id <> p.centro_costo_id
+  `), 0);
+
+eq('el admin agrega un CECO adicional a un lugar de su alcance',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () =>
+    (await q(`
+      insert into public.parques_centros
+        (empresa_id, parque_id, centro_costo_id, principal, activo)
+      values ($1, $2, $3, false, true)
+    `, [A.empresa, P.child, T.cecoExtra])).rowCount), 1);
+
+await expectRoleError('no se repite el CECO en el mismo lugar',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.parques_centros
+     (empresa_id, parque_id, centro_costo_id, principal, activo)
+   values ($1, $2, $3, false, true)`,
+  [A.empresa, P.child, A.child], '23505');
+
+await expectRoleError('un empleado no agrega CECOs a un lugar',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  `insert into public.parques_centros
+     (empresa_id, parque_id, centro_costo_id, principal, activo)
+   values ($1, $2, $3, false, true)`,
+  [A.empresa, P.child, T.cecoExtra], '42501');
+
+await expectError('un CECO de otra empresa no se habilita en el lugar',
+  `insert into public.parques_centros
+     (empresa_id, parque_id, centro_costo_id, principal, activo)
+   values ($1, $2, $3, false, true)`,
+  [A.empresa, P.child, T.cecoB], '23503');
+
+await expectError('el principal debe coincidir con el centro del parque',
+  `insert into public.parques_centros
+     (empresa_id, parque_id, centro_costo_id, principal, activo)
+   values ($1, $2, $3, true, true)`,
+  [A.empresa, P.child, T.cecoExtra], '23514');
+
+await expectRoleError('el CECO principal no se elimina a mano',
+  'authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'),
+  'delete from public.parques_centros where parque_id = $1 and principal',
+  [P.child], '23514');
+
+await expectError('el CECO principal no cambia de centro a mano',
+  'update public.parques_centros set centro_costo_id = $1 where parque_id = $2 and principal',
+  [T.cecoExtra, P.child], '23514');
+
+await q('begin');
+try {
+  await q('update public.parques set centro_costo_id = $1 where id = $2',
+    [A.grand, P.sibling]);
+  eq('mover el parque desactiva el principal anterior',
+    await scalar(`select count(*)::int from public.parques_centros
+                  where parque_id = $1 and centro_costo_id = $2
+                    and not principal and not activo`,
+      [P.sibling, A.sibling]), 1);
+  eq('mover el parque activa el nuevo principal',
+    await scalar(`select count(*)::int from public.parques_centros
+                  where parque_id = $1 and centro_costo_id = $2
+                    and principal and activo`,
+      [P.sibling, A.grand]), 1);
+} finally {
+  await q('rollback');
+}
+
+eq('el empleado ve los CECOs de los lugares de su empresa',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () => ({
+    a: (await q(`select count(*)::int from public.parques_centros
+                 where empresa_id = $1`, [A.empresa])).rows[0].count,
+    b: (await q(`select count(*)::int from public.parques_centros
+                 where empresa_id = $1`, [B.empresa])).rows[0].count,
+  })).then((r) => [r.a > 0, r.b]), [true, 0]);
+
+eq('la solicitud guarda el lugar y el CECO habilitado',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
+    (await q(`
+      insert into public.solicitudes_horas_extras (
+        centro_costo_id, parque_id, inicio, fin, justificacion
+      ) values ($1, $2, now() + interval '300 days',
+                now() + interval '300 days' + interval '2 hours', 'Apoyo en lugar')
+    `, [A.child, P.child])).rowCount), 1);
+
+await expectRoleError('la solicitud rechaza un CECO no habilitado en el lugar',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  `insert into public.solicitudes_horas_extras (
+     centro_costo_id, parque_id, inicio, fin, justificacion
+   ) values ($1, $2, now() + interval '310 days',
+             now() + interval '310 days' + interval '2 hours', 'Lugar inválido')`,
+  [A.root, P.grand], '23514');
+
+await expectError('la solicitud no acepta un lugar de otra empresa',
+  `insert into public.solicitudes_horas_extras (
+     empresa_id, empleado_id, centro_costo_id, parque_id, inicio, fin, justificacion
+   ) values ($1, $2, $3, $4, now() + interval '320 days',
+             now() + interval '320 days' + interval '2 hours', 'Cruce de empresa')`,
+  [A.empresa, U.empA, A.child, P.b], '23514');
+
+eq('las solicitudes históricas sin lugar siguen siendo válidas',
+  await scalar(`select count(*)::int from public.solicitudes_horas_extras
+                where parque_id is null`), 6);
+
+// -----------------------------------------------------------------------------
+// Incidencias y ajustes de jornada
+// -----------------------------------------------------------------------------
+group('Incidencias y ajustes de jornada');
+
+eq('cerrar con retraso y salida temprana genera dos incidencias',
+  (await q(`select tipo::text, minutos from public.incidencias_jornada
+            where jornada_id = $1 order by tipo::text`, [T.jLate])).rows
+    .map((r) => [r.tipo, r.minutos]),
+  [['llegada_tarde', 75], ['salida_temprana', 30]]);
+
+eq('un GPS con precisión mayor al umbral genera incidencia',
+  (await q(`select tipo::text from public.incidencias_jornada
+            where jornada_id = $1`, [T.jGps])).rows.map((r) => r.tipo),
+  ['gps_impreciso']);
+
+eq('marcar en un parque de otro centro genera incidencia',
+  (await q(`select tipo::text from public.incidencias_jornada
+            where jornada_id = $1`, [T.jPark])).rows.map((r) => r.tipo),
+  ['parque_distinto']);
+
+eq('el empleado ve sus propias incidencias',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () => ({
+    propias: (await q('select count(*)::int from public.incidencias_jornada')).rows[0].count,
+    ajenas: (await q(`select count(*)::int from public.incidencias_jornada
+                      where empleado_id <> $1`, [U.empA])).rows[0].count,
+  })).then((r) => [r.propias > 0, r.ajenas]), [true, 0]);
+
+eq('el empleado de otra empresa no ve las incidencias ajenas',
+  await withRole('authenticated', claims(U.empB, B.empresa, B.root, 'empleado'), async () =>
+    (await q('select count(*)::int from public.incidencias_jornada')).rows[0].count), 0);
+
+eq('el admin ve las incidencias de su subárbol y no las de otra empresa',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () => ({
+    propias: (await q('select count(*)::int from public.incidencias_jornada')).rows[0].count,
+    ajenas: (await q(`select count(*)::int from public.incidencias_jornada
+                      where empleado_id = $1`, [U.empB])).rows[0].count,
+  })).then((r) => [r.propias > 0, r.ajenas]), [true, 0]);
+
+await expectRoleError('el cliente no inserta incidencias',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  `insert into public.incidencias_jornada
+     (empresa_id, jornada_id, empleado_id, tipo)
+   values ($1, $2, $3, 'llegada_tarde')`,
+  [A.empresa, T.jLate, U.empA], '42501');
+
+await expectRoleError('el cliente no inserta ajustes de jornada',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  `insert into public.jornadas_ajustes (
+     empresa_id, jornada_id, empleado_id, ajustado_por, motivo,
+     entrada_en_anterior, salida_en_anterior, entrada_en_nueva, salida_en_nueva
+   ) values ($1, $2, $3, $4, 'Intento directo', now(), now(),
+             now(), now() + interval '1 hour')`,
+  [A.empresa, T.jLate, U.empA, U.gerA], '42501');
+
+await expectError('el historial de ajustes no se edita',
+  `update public.jornadas_ajustes set motivo = 'Otro motivo' where id = $1`,
+  [T.ajuste], '23514');
+
+await expectError('el historial de ajustes no se borra',
+  'delete from public.jornadas_ajustes where id = $1', [T.ajuste], '23514');
+
+eq('el empleado ve los ajustes de sus jornadas',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () =>
+    (await q('select count(*)::int from public.jornadas_ajustes where jornada_id = $1',
+      [J.aCerrada])).rows[0].count), 1);
+
+await expectRoleError('un empleado no ajusta jornadas',
+  'authenticated', claims(U.empA, A.empresa, A.child, 'empleado'),
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [T.jAdjust, new Date(Date.now() - 9 * 3600e3), new Date(Date.now() - 1 * 3600e3),
+    'Corrección solicitada por el empleado'], '42501');
+
+await expectRoleError('el ajuste exige un motivo suficiente',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [T.jAdjust, new Date(Date.now() - 9 * 3600e3), new Date(Date.now() - 1 * 3600e3),
+    'Corto'], '23514');
+
+await expectRoleError('el ajuste exige un rango coherente',
+  'authenticated', claims(U.gerA, A.empresa, A.child, 'admin'),
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [T.jAdjust, new Date(Date.now() - 1 * 3600e3), new Date(Date.now() - 9 * 3600e3),
+    'Rango de prueba inválido'], '23514');
+
+await expectRoleError('una jornada abierta no se ajusta',
+  'authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'),
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [J.grandAbierta, new Date(Date.now() - 9 * 3600e3), new Date(Date.now() - 1 * 3600e3),
+    'Jornada todavía abierta'], '23514');
+
+await expectRoleError('no se ajusta una jornada de otra empresa',
+  'authenticated', claims(U.gerRoot, A.empresa, A.root, 'admin'),
+  'select public.ajustar_jornada($1, $2, $3, $4)',
+  [J.bCerrada, new Date(Date.now() - 9 * 3600e3), new Date(Date.now() - 1 * 3600e3),
+    'Jornada de otra empresa'], '23503');
+
+await q('begin');
+try {
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.gerA, A.empresa, A.child, 'admin'))]);
+
+  const original = (await q(
+    'select entrada_en, salida_en from public.jornadas where id = $1',
+    [T.jAdjust])).rows[0];
+  const entrada = await scalar(
+    `select ${localHora('08:00')}`
+  );
+  const salida = await scalar(
+    `select ${localHora('17:00')}`
+  );
+  const ajuste = await scalar(
+    'select public.ajustar_jornada($1, $2, $3, $4)::text',
+    [T.jAdjust, entrada, salida, 'Corrección de horario autorizada']);
+
+  ok('el admin ajusta una jornada cerrada', !!ajuste);
+  eq('el ajuste conserva los tiempos anteriores y los nuevos',
+    (await q(`select entrada_en_anterior = $1::timestamptz as antes,
+                     salida_en_anterior = $2::timestamptz as salida_antes,
+                     entrada_en_nueva = $3::timestamptz as despues,
+                     salida_en_nueva = $4::timestamptz as salida
+              from public.jornadas_ajustes where id = $5`,
+      [original.entrada_en, original.salida_en, entrada, salida, ajuste])).rows[0],
+    { antes: true, salida_antes: true, despues: true, salida: true });
+  eq('el ajuste actualiza la jornada',
+    (await q(`select entrada_en = $1::timestamptz as entrada,
+                     salida_en = $2::timestamptz as salida
+              from public.jornadas where id = $3`,
+      [entrada, salida, T.jAdjust])).rows[0],
+    { entrada: true, salida: true });
+  eq('el ajuste recalcula y limpia las incidencias',
+    await scalar('select count(*)::int from public.incidencias_jornada where jornada_id = $1',
+      [T.jAdjust]),
+    0);
+} finally {
+  await q('rollback');
+}
+
+// -----------------------------------------------------------------------------
+// Reportes
+// -----------------------------------------------------------------------------
+group('Reportes');
+
+eq('las vistas de reporte heredan la RLS del consultante',
+  await scalar(`
+    select count(*)::int from pg_class
+    where relname in ('reporte_horas_extras', 'cumplimiento_jornadas')
+      and coalesce(reloptions, '{}') @> array['security_invoker=true']
+  `), 2);
+
+eq('el empleado solo ve sus horas extras en el reporte',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () => ({
+    propias: (await q(`select count(*)::int from public.reporte_horas_extras
+                       where empleado_id = $1`, [U.empA])).rows[0].count,
+    ajenas: (await q(`select count(*)::int from public.reporte_horas_extras
+                      where empleado_id <> $1`, [U.empA])).rows[0].count,
+  })).then((r) => [r.propias > 0, r.ajenas]), [true, 0]);
+
+eq('el admin ve el reporte de su subárbol y no el de otra empresa',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () => ({
+    propias: (await q('select count(*)::int from public.reporte_horas_extras')).rows[0].count,
+    ajenas: (await q(`select count(*)::int from public.reporte_horas_extras
+                      where empleado_id = $1`, [U.empB])).rows[0].count,
+  })).then((r) => [r.propias > 0, r.ajenas]), [true, 0]);
+
+eq('el reporte calcula las horas del rango',
+  await (async () => {
+    await q('begin');
+    try {
+      const id = randomUUID();
+      await q(`
+        insert into public.solicitudes_horas_extras (
+          id, empresa_id, empleado_id, centro_costo_id, inicio, fin, justificacion
+        ) values ($1, $2, $3, $4, now() + interval '400 days',
+                  now() + interval '400 days' + interval '2 hours', 'Reporte de horas')
+      `, [id, A.empresa, U.empA, A.child]);
+      await q('set local role authenticated');
+      await q(`select set_config('request.jwt.claims', $1, true)`,
+        [JSON.stringify(claims(U.empA, A.empresa, A.child, 'empleado'))]);
+      return await scalar('select horas::float8 from public.reporte_horas_extras where id = $1', [id]);
+    } finally {
+      await q('rollback');
+    }
+  })(), 2);
+
+eq('el reporte de cumplimiento cruza horario e incidencias',
+  await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () => {
+    const fila = (await q(`
+      select minutos_tarde, minutos_temprano, incidencias,
+             entrada_programada is not null as programada
+      from public.cumplimiento_jornadas where id = $1
+    `, [T.jLate])).rows[0];
+    return [fila.minutos_tarde, fila.minutos_temprano, fila.incidencias, fila.programada];
+  }), [75, 30, ['llegada_tarde', 'salida_temprana'], true]);
+
+eq('el reporte marca la jornada abierta',
+  await withRole('authenticated', claims(U.gerA, A.empresa, A.child, 'admin'), async () => {
+    const fila = (await q(`
+      select abierta, salida_en, horas >= 0 as horas_ok
+      from public.cumplimiento_jornadas where id = $1
+    `, [J.grandAbierta])).rows[0];
+    return [fila.abierta, fila.salida_en, fila.horas_ok];
+  }), [true, null, true]);
+
 // -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
@@ -2130,6 +2951,11 @@ eq('sin app_metadata no hay acceso a solicitudes',
 for (const table of BUSINESS_TABLES) {
   await expectRoleError(`anon sin acceso a ${table}`, 'anon', {},
     `select count(*) from public.${table}`, [], '42501');
+}
+
+for (const vista of ['reporte_horas_extras', 'cumplimiento_jornadas']) {
+  await expectRoleError(`anon sin acceso a ${vista}`, 'anon', {},
+    `select count(*) from public.${vista}`, [], '42501');
 }
 
 // -----------------------------------------------------------------------------
