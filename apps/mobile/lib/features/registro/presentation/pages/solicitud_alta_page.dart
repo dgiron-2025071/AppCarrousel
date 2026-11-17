@@ -105,27 +105,31 @@ class _SolicitudAltaPageState extends ConsumerState<SolicitudAltaPage> {
 
   Future<void> _actualizarAcceso() async {
     setState(() => _actualizando = true);
-    final ok = await ref
-        .read(authControllerProvider.notifier)
-        .refrescarSesion();
-    if (!mounted) return;
-    if (!ok) {
-      final error = ref.read(authControllerProvider).error;
-      setState(() => _actualizando = false);
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(
-              error?.toString() ?? 'No se pudo actualizar el acceso.',
+    try {
+      final ok = await ref
+          .read(authControllerProvider.notifier)
+          .refrescarSesion();
+      if (!mounted) return;
+      if (!ok) {
+        final error = ref.read(authControllerProvider).error;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                error?.toString() ?? 'No se pudo actualizar el acceso.',
+              ),
             ),
-          ),
-        );
-      return;
-    }
+          );
+        return;
+      }
 
-    ref.invalidate(perfilProvider);
-    ref.invalidate(miRegistroProvider);
+      ref.invalidate(perfilProvider);
+      ref.invalidate(miRegistroProvider);
+    } finally {
+      // Sin este reset un fallo dejaba el botón deshabilitado para siempre.
+      if (mounted) setState(() => _actualizando = false);
+    }
   }
 
   void _cerrarSesion() {

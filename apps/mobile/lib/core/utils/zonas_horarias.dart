@@ -7,18 +7,30 @@ const zonaHorariaPorDefecto = 'America/Guatemala';
 
 bool _inicializado = false;
 
+void _inicializar() {
+  if (_inicializado) return;
+  datos.initializeTimeZones();
+  _inicializado = true;
+}
+
+tz.Location? _buscar(String zonaHoraria) {
+  _inicializar();
+  return tz.timeZoneDatabase.locations[zonaHoraria];
+}
+
+/// Comprueba la zona contra la base de datos IANA real, no solo su longitud.
+/// PostgreSQL también acepta `UTC` como abreviatura, aunque el paquete
+/// `timezone` no lo exponga como clave de su base.
+bool zonaHorariaValida(String zonaHoraria) {
+  final texto = zonaHoraria.trim();
+  if (texto.toUpperCase() == 'UTC') return true;
+  return _buscar(texto) != null;
+}
+
 tz.Location _location(String zonaHoraria) {
-  if (!_inicializado) {
-    datos.initializeTimeZones();
-    _inicializado = true;
-  }
-  try {
-    return tz.getLocation(zonaHoraria);
-  } catch (_) {
-    // La base valida la zona IANA; si el cliente recibe un valor inesperado,
-    // falla cerrado a UTC en lugar de usar la zona del dispositivo.
-    return tz.UTC;
-  }
+  // La base valida la zona IANA; si el cliente recibe un valor inesperado,
+  // falla cerrado a UTC en lugar de usar la zona del dispositivo.
+  return _buscar(zonaHoraria) ?? tz.UTC;
 }
 
 /// Instante actual expresado en la zona horaria de la empresa.

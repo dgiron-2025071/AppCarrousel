@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:carrousel_app/core/errors/error_messages.dart';
 import 'package:carrousel_app/core/utils/duraciones.dart';
+import 'package:carrousel_app/core/utils/selectores_fecha.dart';
 import 'package:carrousel_app/features/catalogo/domain/entities/lugar_catalogo.dart';
 import 'package:carrousel_app/features/catalogo/domain/utils/lugares.dart';
 import 'package:carrousel_app/features/auth/domain/entities/perfil.dart';
@@ -53,29 +54,32 @@ class _SolicitudFormPageState extends ConsumerState<SolicitudFormPage> {
 
   Duration get _duracion => _fin.difference(_inicio);
 
-  Future<DateTime?> _elegirFechaHora(DateTime actual) async {
-    final ahora = DateTime.now();
-    final fecha = await showDatePicker(
-      context: context,
-      initialDate: actual,
-      firstDate: DateTime(ahora.year - 1),
-      lastDate: DateTime(ahora.year + 1, 12, 31),
-      helpText: 'Fecha de las horas extras',
+  /// Lugar efectivo: el elegido por el usuario o el sugerido por su CECO.
+  LugarCatalogo? _lugarEfectivo(List<LugarCatalogo> lugares, Perfil? perfil) {
+    final sugerido = lugarSugerido(lugares, perfil?.centroCostoId);
+    if (sugerido == null || _parqueId == null) return sugerido;
+    return lugares.firstWhere(
+      (lugar) => lugar.parque.id == _parqueId,
+      orElse: () => sugerido,
     );
-    if (fecha == null || !mounted) return null;
+  }
 
-    final hora = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(actual),
-      helpText: 'Hora',
-    );
-    if (hora == null) return null;
-
-    return DateTime(fecha.year, fecha.month, fecha.day, hora.hour, hora.minute);
+  /// CECO efectivo: el elegido por el usuario si sigue habilitado en el lugar.
+  String? _centroEfectivo(LugarCatalogo lugar, Perfil? perfil) {
+    if (_centroId != null &&
+        lugar.centros.any((centro) => centro.id == _centroId)) {
+      return _centroId;
+    }
+    return centroSugerido(lugar, perfil?.centroCostoId);
   }
 
   Future<void> _cambiarInicio() async {
-    final valor = await _elegirFechaHora(_inicio);
+    final valor = await elegirFechaHora(
+      context,
+      _inicio,
+      ayudaFecha: 'Fecha de las horas extras',
+      ayudaHora: 'Hora',
+    );
     if (valor == null || !mounted) return;
     setState(() {
       _inicio = valor;
@@ -86,7 +90,12 @@ class _SolicitudFormPageState extends ConsumerState<SolicitudFormPage> {
   }
 
   Future<void> _cambiarFin() async {
-    final valor = await _elegirFechaHora(_fin);
+    final valor = await elegirFechaHora(
+      context,
+      _fin,
+      ayudaFecha: 'Fecha de las horas extras',
+      ayudaHora: 'Hora',
+    );
     if (valor == null || !mounted) return;
     if (!valor.isAfter(_inicio)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -103,7 +112,12 @@ class _SolicitudFormPageState extends ConsumerState<SolicitudFormPage> {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
 
-    if (_parqueId == null || _centroId == null) {
+    final perfil = ref.read(perfilProvider).valueOrNull;
+    final lugares =
+        ref.read(lugaresProvider).valueOrNull ?? const <LugarCatalogo>[];
+    final lugar = _lugarEfectivo(lugares, perfil);
+    final centroId = lugar == null ? null : _centroEfectivo(lugar, perfil);
+    if (lugar == null || centroId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Selecciona el lugar y el centro de costo.'),
@@ -131,8 +145,8 @@ class _SolicitudFormPageState extends ConsumerState<SolicitudFormPage> {
     setState(() => _enviando = true);
     try {
       await ref.read(crearSolicitudProvider)(
-        centroCostoId: _centroId!,
-        parqueId: _parqueId!,
+        centroCostoId: centroId,
+        parqueId: lugar.parque.id,
         inicio: _inicio,
         fin: _fin,
         justificacion: _justificacion.text,
@@ -328,22 +342,9 @@ class _SolicitudFormPageState extends ConsumerState<SolicitudFormPage> {
       );
     }
 
-    final sugerido = lugarSugerido(lugares, perfil?.centroCostoId);
-    var lugar = sugerido!;
-    for (final candidato in lugares) {
-      if (candidato.parque.id == _parqueId) {
-        lugar = candidato;
-        break;
-      }
-    }
-    _parqueId = lugar.parque.id;
-
-    if (_centroId == null ||
-        !lugar.centros.any((centro) => centro.id == _centroId)) {
-      _centroId = centroSugerido(lugar, perfil?.centroCostoId);
-    }
-
-    final centroSeleccionado = _centroId;
+    // Valores derivados: el build no debe mutar el estado del formulario.
+    final lugar = _lugarEfectivo(lugares, perfil)!;
+    final centroSeleccionado = _centroEfectivo(lugar, perfil);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

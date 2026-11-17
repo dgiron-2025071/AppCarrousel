@@ -80,5 +80,13 @@ void main() {
       final turno = horario(entrada: '08:15', salida: '17:45');
       expect(duracionTurno(turno), '9 h 30 min');
     });
+
+    test('la base rechaza entrada y salida iguales', () {
+      final turno = horario(entrada: '09:00', salida: '09:00');
+      expect(turno.franjaValida, isFalse);
+      expect(turno.nocturno, isFalse);
+      expect(validarFranja(turno.horaEntrada, turno.horaSalida), isNotNull);
+      expect(horario(entrada: '22:00', salida: '06:00').franjaValida, isTrue);
+    });
   });
 }

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:carrousel_app/core/errors/error_messages.dart';
+import 'package:carrousel_app/core/utils/zonas_horarias.dart';
 import 'package:carrousel_app/core/widgets/estado_widgets.dart';
 import 'package:carrousel_app/features/auth/presentation/providers/auth_providers.dart';
 import 'package:carrousel_app/features/configuracion/domain/entities/configuracion_empresa.dart';
@@ -56,6 +57,23 @@ class _FormularioState extends ConsumerState<_Formulario> {
     _gps = TextEditingController(
       text: widget.config.gpsPrecisionMaximaMetros.toString(),
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant _Formulario oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // El provider puede recargarse (guardado, Realtime o reintento) y los
+    // controladores deben seguir el valor vigente, no solo el inicial.
+    if (oldWidget.config.zonaHoraria != widget.config.zonaHoraria &&
+        _zona.text != widget.config.zonaHoraria) {
+      _zona.text = widget.config.zonaHoraria;
+    }
+    final gps = widget.config.gpsPrecisionMaximaMetros.toString();
+    if (oldWidget.config.gpsPrecisionMaximaMetros !=
+            widget.config.gpsPrecisionMaximaMetros &&
+        _gps.text != gps) {
+      _gps.text = gps;
+    }
   }
 
   @override
@@ -131,6 +149,9 @@ class _FormularioState extends ConsumerState<_Formulario> {
                   final texto = valor?.trim() ?? '';
                   if (texto.isEmpty) return 'Escribe la zona horaria.';
                   if (texto.length > 64) return 'Usa máximo 64 caracteres.';
+                  if (!zonaHorariaValida(texto)) {
+                    return 'Usa una zona IANA válida, por ejemplo America/Guatemala.';
+                  }
                   return null;
                 },
               ),
