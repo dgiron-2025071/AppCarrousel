@@ -1,7 +1,10 @@
+import 'package:carrousel_app/core/utils/horas.dart';
+
 /// Horario semanal de un empleado para un día ISO.
 ///
-/// `horaEntrada` y `horaSalida` usan el formato `HH:mm`. Una salida menor o
-/// igual a la entrada representa un turno nocturno que cruza medianoche.
+/// `horaEntrada` y `horaSalida` usan el formato `HH:mm`. Una salida menor que
+/// la entrada representa un turno nocturno que cruza medianoche; la base
+/// rechaza que sean iguales (`horarios_franja_distinta`).
 class Horario {
   const Horario({
     required this.id,
@@ -27,23 +30,17 @@ class Horario {
   final int toleranciaSalidaMin;
   final bool activo;
 
-  int get minutosEntrada => _minutosDeHora(horaEntrada);
+  int get minutosEntrada => minutosDeHora(horaEntrada);
 
-  int get minutosSalida => _minutosDeHora(horaSalida);
+  int get minutosSalida => minutosDeHora(horaSalida);
 
-  bool get nocturno => minutosSalida <= minutosEntrada;
+  bool get franjaValida => validarFranja(horaEntrada, horaSalida) == null;
+
+  bool get nocturno => franjaValida && minutosSalida < minutosEntrada;
 
   int get duracionMinutos => nocturno
       ? 1440 - minutosEntrada + minutosSalida
-      : minutosSalida - minutosEntrada;
+      : (minutosSalida - minutosEntrada).clamp(0, 1440);
 
   Duration get duracion => Duration(minutes: duracionMinutos);
-}
-
-int _minutosDeHora(String hora) {
-  final partes = hora.split(':');
-  if (partes.length < 2) return 0;
-  final horas = int.tryParse(partes[0]) ?? 0;
-  final minutos = int.tryParse(partes[1]) ?? 0;
-  return (horas * 60 + minutos).clamp(0, 1439);
 }

@@ -1,3 +1,8 @@
+import 'package:carrousel_app/core/errors/error_messages.dart';
+import 'package:carrousel_app/features/auth/domain/entities/perfil.dart';
+import 'package:carrousel_app/features/auth/domain/entities/sesion_usuario.dart';
+import 'package:carrousel_app/features/auth/domain/repositories/auth_repository.dart';
+import 'package:carrousel_app/features/auth/presentation/providers/auth_providers.dart';
 import 'package:carrousel_app/features/registro/domain/entities/mi_registro.dart';
 import 'package:carrousel_app/features/registro/domain/repositories/registro_repository.dart';
 import 'package:carrousel_app/features/registro/presentation/pages/solicitud_alta_page.dart';
@@ -43,9 +48,58 @@ class _FakeRegistroRepository implements RegistroRepository {
   }
 }
 
-Widget _app(_FakeRegistroRepository repo) {
+class _FakeAuthRepository implements AuthRepository {
+  const _FakeAuthRepository({this.error});
+
+  final Object? error;
+
+  @override
+  Stream<EventoSesion> get eventosDeSesion => const Stream.empty();
+
+  @override
+  SesionUsuario? get sesionActual =>
+      const SesionUsuario(id: 'empleado-id', email: 'ana@carrousel.test');
+
+  @override
+  Future<void> iniciarSesion({
+    required String email,
+    required String password,
+  }) async {}
+
+  @override
+  Future<ResultadoRegistroCuenta> registrarCuenta({
+    required String email,
+    required String password,
+    required String nombreCompleto,
+  }) async => ResultadoRegistroCuenta.confirmarCorreo;
+
+  @override
+  Future<bool> iniciarConGoogle() async => true;
+
+  @override
+  Future<void> enviarRecuperacion(String email) async {}
+
+  @override
+  Future<void> actualizarContrasena(String password) async {}
+
+  @override
+  Future<void> cerrarSesion() async {}
+
+  @override
+  Future<void> refrescarSesion() async {
+    if (error != null) throw error!;
+  }
+
+  @override
+  Future<Perfil?> obtenerPerfil(String userId) async => null;
+}
+
+Widget _app(_FakeRegistroRepository repo, {_FakeAuthRepository? auth}) {
   return ProviderScope(
-    overrides: [registroRepositoryProvider.overrideWithValue(repo)],
+    overrides: [
+      registroRepositoryProvider.overrideWithValue(repo),
+      if (auth != null) authRepositoryProvider.overrideWithValue(auth),
+    ],
     child: const MaterialApp(
       home: SolicitudAltaPage(
         email: 'ana@carrousel.test',
@@ -147,5 +201,36 @@ void main() {
       find.text('El código de empresa no existe o la empresa está suspendida.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('rehabilita Actualizar acceso aunque falle la renovación', (
+    tester,
+  ) async {
+    final repo = _FakeRegistroRepository()
+      ..registro = MiRegistro(
+        id: 'r1',
+        empresaId: 'e1',
+        email: 'ana@carrousel.test',
+        nombreCompleto: 'Ana Pérez',
+        estado: EstadoMiRegistro.aprobado,
+        creadoEn: DateTime(2026, 11, 16),
+      );
+    final auth = _FakeAuthRepository(
+      error: const AppException('No se pudo refrescar la sesión.'),
+    );
+
+    await tester.pumpWidget(_app(repo, auth: auth));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Actualizar acceso'), findsOneWidget);
+    await tester.ensureVisible(find.text('Actualizar acceso'));
+    await tester.tap(find.text('Actualizar acceso'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No se pudo refrescar la sesión.'), findsOneWidget);
+    final boton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Actualizar acceso'),
+    );
+    expect(boton.onPressed, isNotNull, reason: 'Debe poder reintentar');
   });
 }

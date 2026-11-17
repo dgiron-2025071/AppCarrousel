@@ -146,7 +146,6 @@ class _HorariosEquipoPageState extends ConsumerState<HorariosEquipoPage> {
           (miembro) => miembro.id == _empleadoId,
           orElse: () => activos.first,
         );
-        _empleadoId = seleccionado.id;
         final horariosAsync = ref.watch(
           horariosEmpleadoProvider(seleccionado.id),
         );
@@ -410,6 +409,13 @@ class _DialogoHorarioState extends State<_DialogoHorario> {
   }
 
   void _confirmar() {
+    // PostgreSQL exige franjas distintas; una salida menor sigue siendo un
+    // turno nocturno válido.
+    final franjaInvalida = validarFranja(_entrada, _salida);
+    if (franjaInvalida != null) {
+      setState(() => _error = franjaInvalida);
+      return;
+    }
     final toleranciaEntrada = int.tryParse(_toleranciaEntrada.text.trim());
     final toleranciaSalida = int.tryParse(_toleranciaSalida.text.trim());
     // La base acepta 0..240 minutos (migración 0024); el cliente no debe

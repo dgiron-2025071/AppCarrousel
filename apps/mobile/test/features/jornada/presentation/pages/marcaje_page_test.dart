@@ -74,7 +74,11 @@ Jornada _jornadaAbierta() => Jornada(
   entradaParqueRadioMetros: 100,
 );
 
-void _simularUbicacion(WidgetTester tester) {
+void _simularUbicacion(
+  WidgetTester tester, {
+  double latitud = _lat,
+  double longitud = _lon,
+}) {
   const canal = MethodChannel('flutter.baseflow.com/geolocator');
   tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(canal, (
     llamada,
@@ -85,7 +89,7 @@ void _simularUbicacion(WidgetTester tester) {
       case 'checkPermission':
         return 2;
       case 'getCurrentPosition':
-        return {'latitude': _lat, 'longitude': _lon, 'accuracy': 10.0};
+        return {'latitude': latitud, 'longitude': longitud, 'accuracy': 10.0};
       default:
         return null;
     }
@@ -103,8 +107,10 @@ Future<void> _pumpMarcaje(
   required _RepoFalso repo,
   required List<Jornada> jornadas,
   required List<Parque> parques,
+  double latitud = _lat,
+  double longitud = _lon,
 }) async {
-  _simularUbicacion(tester);
+  _simularUbicacion(tester, latitud: latitud, longitud: longitud);
   await tester.binding.setSurfaceSize(const Size(800, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
@@ -164,6 +170,32 @@ void main() {
 
     expect(repo.salidas, 1);
     expect(repo.jornadaId, 'jornada-1');
+  });
+
+  testWidgets('rechaza la salida fuera de la geocerca congelada', (
+    tester,
+  ) async {
+    final repo = _RepoFalso();
+    await _pumpMarcaje(
+      tester,
+      repo: repo,
+      jornadas: [_jornadaAbierta()],
+      parques: [_parque(activo: true)],
+      // El empleado se alejó del parque donde entró.
+      latitud: _lat + 0.05,
+      longitud: _lon + 0.05,
+    );
+
+    expect(find.textContaining('Acércate para poder marcar.'), findsOneWidget);
+    final boton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Registrar salida'),
+    );
+    expect(boton.onPressed, isNull, reason: 'Fuera de geocerca no se habilita');
+
+    await tester.tap(find.text('Registrar salida'));
+    await tester.pumpAndSettle();
+
+    expect(repo.salidas, 0);
   });
 
   testWidgets('sin jornada no ofrece un parque desactivado para entrar', (

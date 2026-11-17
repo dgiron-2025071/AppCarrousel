@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:carrousel_app/core/errors/error_messages.dart';
+import 'package:carrousel_app/core/utils/correos.dart';
 import 'package:carrousel_app/features/catalogo/domain/utils/centros.dart';
 import 'package:carrousel_app/core/widgets/estado_widgets.dart';
 import 'package:carrousel_app/features/catalogo/domain/entities/centro_costo.dart';
@@ -20,8 +21,7 @@ class InvitarUsuarioPage extends ConsumerStatefulWidget {
   const InvitarUsuarioPage({super.key});
 
   @override
-  ConsumerState<InvitarUsuarioPage> createState() =>
-      _InvitarUsuarioPageState();
+  ConsumerState<InvitarUsuarioPage> createState() => _InvitarUsuarioPageState();
 }
 
 class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
@@ -40,11 +40,11 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
     super.dispose();
   }
 
-  Future<void> _enviar() async {
+  Future<void> _enviar(String? centroId) async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
 
-    if (_centroId == null) {
+    if (centroId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona el centro de costo destino.')),
       );
@@ -53,13 +53,14 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
 
     setState(() => _enviando = true);
     try {
-      final invitacion =
-          await ref.read(invitacionControllerProvider.notifier).invitar(
-                email: _email.text,
-                nombreCompleto: _nombre.text,
-                rol: _rol,
-                centroCostoId: _centroId!,
-              );
+      final invitacion = await ref
+          .read(invitacionControllerProvider.notifier)
+          .invitar(
+            email: _email.text,
+            nombreCompleto: _nombre.text,
+            rol: _rol,
+            centroCostoId: centroId,
+          );
       if (invitacion == null || !mounted) return;
 
       await showDialog<void>(
@@ -110,8 +111,7 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
             return const EstadoVacio(
               icono: Icons.admin_panel_settings_outlined,
               titulo: 'Solo administradores',
-              mensaje:
-                  'Esta sección permite invitar usuarios al equipo de tu centro de costo.',
+              mensaje: 'Esta sección permite invitar usuarios al equipo de tu centro de costo.',
             );
           }
           return _formulario(context, perfil, colores);
@@ -120,20 +120,19 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
     );
   }
 
-  Widget _formulario(
-    BuildContext context,
-    Perfil perfil,
-    ColorScheme colores,
-  ) {
+  Widget _formulario(BuildContext context, Perfil perfil, ColorScheme colores) {
     final centrosAsync = ref.watch(centrosProvider);
     final centros = centrosAsync.valueOrNull ?? const <CentroCosto>[];
     final subarbol = subarbolDe(centros, perfil.centroCostoId);
 
-    if (_centroId == null && subarbol.isNotEmpty) {
-      _centroId = subarbol.any((centro) => centro.id == perfil.centroCostoId)
-          ? perfil.centroCostoId
-          : subarbol.first.id;
-    }
+    // El valor por defecto se calcula, no se escribe en el estado durante el
+    // build: el provider puede recargarse en cualquier momento.
+    final centroId =
+        _centroId != null && subarbol.any((centro) => centro.id == _centroId)
+        ? _centroId
+        : (subarbol.any((centro) => centro.id == perfil.centroCostoId)
+              ? perfil.centroCostoId
+              : (subarbol.isEmpty ? null : subarbol.first.id));
 
     return SafeArea(
       child: Form(
@@ -143,9 +142,7 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
           children: [
             Text(
               'Suma a alguien a tu equipo',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
+              style: Theme.of(context).textTheme.titleLarge
                   ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
@@ -187,13 +184,7 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
                 hintText: 'persona@correo.com',
               ),
               validator: (valor) {
-                final texto = valor?.trim() ?? '';
-                final valido =
-                    RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(texto);
-                if (!valido) return 'Escribe un correo válido.';
-                if (texto.length > 320) {
-                  return 'El correo no puede superar 320 caracteres.';
-                }
+                if (!correoValido(valor)) return 'Escribe un correo válido.';
                 return null;
               },
             ),
@@ -227,10 +218,7 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
                 _rol == RolUsuario.admin
                     ? 'Podrá revisar horas extras e invitar usuarios dentro de tu subárbol.'
                     : 'Podrá marcar jornadas y enviar solicitudes de horas extras.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colores.onSurfaceVariant,
-                ),
+                style: TextStyle(fontSize: 12, color: colores.onSurfaceVariant),
               ),
             ),
             const SizedBox(height: 14),
@@ -246,13 +234,12 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
               )
             else if (subarbol.isEmpty)
               _MensajeEnLinea(
-                mensaje:
-                    'No hay centros disponibles dentro de tu subárbol.',
+                mensaje: 'No hay centros disponibles dentro de tu subárbol.',
                 onReintentar: () => ref.invalidate(centrosProvider),
               )
             else
               DropdownButtonFormField<String>(
-                initialValue: _centroId,
+                initialValue: centroId,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Centro de costo',
@@ -302,7 +289,7 @@ class _InvitarUsuarioPageState extends ConsumerState<InvitarUsuarioPage> {
             ),
             const SizedBox(height: 22),
             FilledButton.icon(
-              onPressed: _enviando ? null : _enviar,
+              onPressed: _enviando ? null : () => _enviar(centroId),
               icon: _enviando
                   ? const SizedBox(
                       height: 20,
@@ -346,10 +333,7 @@ class _MensajeEnLinea extends StatelessWidget {
               style: TextStyle(color: colores.onErrorContainer),
             ),
           ),
-          TextButton(
-            onPressed: onReintentar,
-            child: const Text('Reintentar'),
-          ),
+          TextButton(onPressed: onReintentar, child: const Text('Reintentar')),
         ],
       ),
     );

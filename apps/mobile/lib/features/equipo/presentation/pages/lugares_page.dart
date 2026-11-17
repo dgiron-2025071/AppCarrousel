@@ -113,8 +113,6 @@ class _LugaresPageState extends ConsumerState<LugaresPage> {
       (parque) => parque.id == _parqueId,
       orElse: () => parques.first,
     );
-    _parqueId = parqueSeleccionado.id;
-
     final centrosPorId = {for (final centro in centros) centro.id: centro};
     final enlacesDelParque = enlaces
         .where((enlace) => enlace.parqueId == parqueSeleccionado.id)

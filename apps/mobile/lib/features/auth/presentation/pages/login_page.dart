@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:carrousel_app/core/utils/correos.dart';
 import 'package:carrousel_app/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:carrousel_app/features/auth/presentation/pages/forgot_password_page.dart';
 import 'package:carrousel_app/features/auth/presentation/pages/registro_cuenta_page.dart';
@@ -28,20 +29,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Future<void> _entrar() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
-    await ref.read(authControllerProvider.notifier).iniciarSesion(
-          email: _email.text,
-          password: _password.text,
-        );
+    await ref
+        .read(authControllerProvider.notifier)
+        .iniciarSesion(email: _email.text, password: _password.text);
   }
 
   Future<void> _google() async {
     FocusScope.of(context).unfocus();
-    final abierto =
-        await ref.read(authControllerProvider.notifier).iniciarConGoogle();
+    final abierto = await ref
+        .read(authControllerProvider.notifier)
+        .iniciarConGoogle();
     if (!mounted || abierto) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('No se pudo abrir Google.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('No se pudo abrir Google.')));
   }
 
   void _abrirRegistro() {
@@ -86,7 +87,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     Text(
                       'Carrousel',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(
                             fontWeight: FontWeight.w800,
                             letterSpacing: -0.5,
                           ),
@@ -95,9 +97,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     Text(
                       'Control de jornadas y horas extras',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: colores.onSurfaceVariant,
-                          ),
+                      style: Theme.of(context).textTheme.bodyLarge
+                          ?.copyWith(color: colores.onSurfaceVariant),
                     ),
                     const SizedBox(height: 36),
                     TextFormField(
@@ -112,7 +113,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       validator: (valor) {
                         final texto = valor?.trim() ?? '';
                         if (texto.isEmpty) return 'Escribe tu correo.';
-                        if (!texto.contains('@') || !texto.contains('.')) {
+                        if (!correoValido(texto)) {
                           return 'Escribe un correo válido.';
                         }
                         return null;
@@ -132,9 +133,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           tooltip: _verContrasena
                               ? 'Ocultar contraseña'
                               : 'Mostrar contraseña',
-                          onPressed: () => setState(
-                            () => _verContrasena = !_verContrasena,
-                          ),
+                          onPressed: () =>
+                              setState(() => _verContrasena = !_verContrasena),
                           icon: Icon(
                             _verContrasena
                                 ? Icons.visibility_off_rounded
@@ -160,7 +160,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           ? const SizedBox(
                               height: 22,
                               width: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2.4),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                              ),
                             )
                           : const Text('Iniciar sesión'),
                     ),
@@ -191,19 +193,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       'Crea tu cuenta con el código de empresa. Un administrador '
                       'aprobará tu acceso como empleado.',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: colores.onSurfaceVariant,
-                          ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: colores.onSurfaceVariant),
                     ),
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          '¿Aún no tienes cuenta?',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: colores.onSurfaceVariant,
-                              ),
+                        Flexible(
+                          child: Text(
+                            '¿Aún no tienes cuenta?',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colores.onSurfaceVariant),
+                          ),
                         ),
                         TextButton(
                           onPressed: cargando ? null : _abrirRegistro,

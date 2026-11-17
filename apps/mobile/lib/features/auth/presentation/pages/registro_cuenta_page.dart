@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:carrousel_app/core/utils/correos.dart';
 import 'package:carrousel_app/features/auth/domain/repositories/auth_repository.dart';
 import 'package:carrousel_app/features/auth/presentation/controllers/auth_controller.dart';
 
@@ -113,8 +114,7 @@ class _RegistroCuentaPageState extends ConsumerState<RegistroCuentaPage> {
                             validator: (valor) {
                               final texto = valor?.trim() ?? '';
                               if (texto.isEmpty) return 'Escribe tu correo.';
-                              if (!texto.contains('@') ||
-                                  !texto.contains('.')) {
+                              if (!correoValido(texto)) {
                                 return 'Escribe un correo válido.';
                               }
                               return null;

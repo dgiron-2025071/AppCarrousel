@@ -20,7 +20,7 @@ const _admin = Perfil(
 class _FakeConfiguracion implements ConfiguracionRepository {
   _FakeConfiguracion();
 
-  final ConfiguracionEmpresa config = const ConfiguracionEmpresa(
+  ConfiguracionEmpresa config = const ConfiguracionEmpresa(
     id: 'empresa-id',
     nombre: 'Carrousel',
     zonaHoraria: 'America/Guatemala',
@@ -28,6 +28,18 @@ class _FakeConfiguracion implements ConfiguracionRepository {
   );
   String? zonaGuardada;
   int? gpsGuardado;
+
+  void actualizar({
+    required String zonaHoraria,
+    required int gpsPrecisionMaximaMetros,
+  }) {
+    config = ConfiguracionEmpresa(
+      id: config.id,
+      nombre: config.nombre,
+      zonaHoraria: zonaHoraria,
+      gpsPrecisionMaximaMetros: gpsPrecisionMaximaMetros,
+    );
+  }
 
   @override
   Future<ConfiguracionEmpresa> cargar(String empresaId) async => config;
@@ -108,5 +120,46 @@ void main() {
 
     expect(find.text('Usa un valor entre 10 y 1000 metros.'), findsOneWidget);
     expect(repo.zonaGuardada, isNull);
+  });
+
+  testWidgets('rechaza una zona IANA inexistente', (tester) async {
+    final repo = _FakeConfiguracion();
+
+    await tester.pumpWidget(_app(repo));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'Zona/Invalida');
+    await tester.tap(find.text('Guardar configuración'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Usa una zona IANA válida, por ejemplo America/Guatemala.'),
+      findsOneWidget,
+    );
+    expect(repo.zonaGuardada, isNull);
+  });
+
+  testWidgets('los controladores siguen al provider al recargarse', (
+    tester,
+  ) async {
+    final repo = _FakeConfiguracion();
+
+    await tester.pumpWidget(_app(repo));
+    await tester.pumpAndSettle();
+
+    repo.actualizar(
+      zonaHoraria: 'America/Mexico_City',
+      gpsPrecisionMaximaMetros: 50,
+    );
+    final contexto = tester.element(find.byType(ConfiguracionEmpresaPage));
+    ProviderScope.containerOf(contexto)
+        .invalidate(configuracionEmpresaProvider(_admin.empresaId));
+    await tester.pumpAndSettle();
+
+    final campos = tester
+        .widgetList<TextFormField>(find.byType(TextFormField))
+        .toList();
+    expect(campos[0].controller?.text, 'America/Mexico_City');
+    expect(campos[1].controller?.text, '50');
   });
 }

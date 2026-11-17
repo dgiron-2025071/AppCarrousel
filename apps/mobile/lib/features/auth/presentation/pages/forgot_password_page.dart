@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:carrousel_app/core/utils/correos.dart';
 import 'package:carrousel_app/features/auth/presentation/controllers/auth_controller.dart';
 
 class ForgotPasswordPage extends ConsumerStatefulWidget {
@@ -55,9 +56,7 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
                       Text(
                         'Revisa tu correo',
                         textAlign: TextAlign.center,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
+                        style: Theme.of(context).textTheme.titleLarge
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 10),
@@ -97,7 +96,7 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
                           validator: (valor) {
                             final texto = valor?.trim() ?? '';
                             if (texto.isEmpty) return 'Escribe tu correo.';
-                            if (!texto.contains('@') || !texto.contains('.')) {
+                            if (!correoValido(texto)) {
                               return 'Escribe un correo válido.';
                             }
                             return null;
@@ -117,8 +116,9 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
                               ? const SizedBox(
                                   height: 22,
                                   width: 22,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2.4),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                  ),
                                 )
                               : const Text('Enviar enlace'),
                         ),

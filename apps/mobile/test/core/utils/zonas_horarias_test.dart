@@ -31,6 +31,14 @@ void main() {
     expect(inicioMesEnZona(local, zona).toUtc(), DateTime.utc(2026, 11, 1, 6));
   });
 
+  test('valida la zona contra la base IANA, no por su longitud', () {
+    expect(zonaHorariaValida('America/Guatemala'), isTrue);
+    expect(zonaHorariaValida('UTC'), isTrue);
+    expect(zonaHorariaValida('Zona/Invalida'), isFalse);
+    expect(zonaHorariaValida(' America/Guatemala '), isTrue);
+    expect(zonaHorariaValida('AB/CD'), isFalse);
+  });
+
   test('una zona inesperada cae a UTC en lugar de usar la del dispositivo', () {
     expect(ahoraEnZona('Zona/Invalida', instante: instante).toUtc(), instante);
     expect(
