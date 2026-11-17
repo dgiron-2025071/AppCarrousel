@@ -30,7 +30,7 @@ const _sesion = SesionUsuario(id: 'empleado-id', email: 'ana@carrousel.test');
 
 /// Las páginas del shell se construyen todas juntas en un `IndexedStack`, así
 /// que se aíslan sus providers de datos para que la prueba no toque Supabase.
-Widget _app({ThemeMode tema = ThemeMode.light}) {
+Widget _app({ThemeMode tema = ThemeMode.light, bool? esWeb}) {
   return ProviderScope(
     overrides: [
       temaProvider.overrideWith((ref) => tema),
@@ -61,7 +61,9 @@ Widget _app({ThemeMode tema = ThemeMode.light}) {
           home: Column(
             children: [
               Text(modo.name, key: const Key('tema-actual')),
-              Expanded(child: HomeShell(perfil: _empleado)),
+              Expanded(
+                child: HomeShell(perfil: _empleado, esWeb: esWeb),
+              ),
             ],
           ),
         );
@@ -80,6 +82,43 @@ void main() {
 
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+    expect(
+      tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
+      isTrue,
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Horario'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Mi horario'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('en web mantiene el menú lateral en una ventana estrecha', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(480, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_app(esWeb: true));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(
+      tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
+      isFalse,
+    );
 
     await tester.tap(
       find.descendant(
