@@ -15,11 +15,17 @@ import 'package:carrousel_app/features/solicitudes/presentation/pages/solicitude
 /// En web usa siempre `NavigationRail` lateral; en móvil, `NavigationBar`. En
 /// pantallas anchas el rail se extiende desde 1100 px. El empleado ve Inicio,
 /// Horario, Horas extras y Perfil; el administrador suma Equipo. El AppBar
-/// permite alternar entre tema claro y oscuro sin salir de la pantalla.
+/// permite alternar entre tema claro y oscuro sin salir de la pantalla. El
+/// parámetro [esWeb] solo se usa en pruebas para forzar la rama de navegación
+/// lateral sin depender de un navegador real.
 class HomeShell extends ConsumerStatefulWidget {
-  const HomeShell({super.key, required this.perfil});
+  const HomeShell({super.key, required this.perfil, this.esWeb});
 
   final Perfil perfil;
+
+  /// Permite simular la rama web en pruebas de widget. En la app se deja nulo
+  /// y se resuelve con `kIsWeb`; `true` fuerza el menú lateral.
+  final bool? esWeb;
 
   @override
   ConsumerState<HomeShell> createState() => _HomeShellState();
@@ -77,7 +83,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final ancho = constraints.maxWidth;
-        final usarRail = kIsWeb || ancho >= 900;
+        final usarRail = (widget.esWeb ?? kIsWeb) || ancho >= 900;
         final extendido = ancho >= 1100;
 
         return Scaffold(
