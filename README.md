@@ -90,11 +90,11 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - comprueba que el centro destino esté en su subárbol (`ruta`) y en su empresa;
 - invita por correo, escribe `app_metadata` con `service_role` y revierte el usuario si falla la asignación.
 
-El detalle del contrato y los comandos de despliegue están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 31 pruebas de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, invitación y rollback); su despliegue y prueba contra un proyecto real quedan pendientes de credenciales.
+El detalle del contrato, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 31 pruebas de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, invitación y rollback); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
 
 ## Estado del backend — MT-02
 
-> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#80](https://github.com/dgiron-2025071/AppCarrousel/pull/80) del 2026-11-17. Las migraciones `0023`-`0030` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
+> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#82](https://github.com/dgiron-2025071/AppCarrousel/pull/82) del 2026-11-18. Las migraciones `0023`-`0030` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
 
 - [x] **0023** `puestos` por empresa y `perfiles.puesto_id` materializado desde `app_metadata.puesto_id`. `centros_costo.jefe_id` designa al administrador responsable; `private.jefe_de_centro()` sube por `ruta` al jefe más cercano y `private.es_autorizador()` resuelve la cadena. El jefe debe ser un admin activo de la misma empresa, así que la firma de revisión de `0019`-`0021` sigue siendo válida.
 - [x] **0024** Horario semanal por empleado y día ISO (`horarios`), zona horaria IANA y umbral de precisión GPS por empresa, con `private.fecha_local()` y `private.horario_del_dia()` para calcular llegadas y salidas.
@@ -308,6 +308,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-17 | Release MT-02 — baja y cobertura de validadores, estados y UI | `develop` | [#78](https://github.com/dgiron-2025071/AppCarrousel/pull/78) | Mergeado a `main` | `flutter analyze`, 123 pruebas, 346 DB, CI |
 | 2026-11-17 | Cobertura de la navegación web de `HomeShell` | `dgiron-2025071` | [#79](https://github.com/dgiron-2025071/AppCarrousel/pull/79) | Mergeado a `develop` | `flutter analyze`, 124 pruebas, 346 DB, CI |
 | 2026-11-17 | Release MT-02 — cobertura de la navegación web | `develop` | [#80](https://github.com/dgiron-2025071/AppCarrousel/pull/80) | Mergeado a `main` | `flutter analyze`, 124 pruebas, 346 DB, CI |
+| 2026-11-18 | Workflow manual de despliegue de la Edge Function | `dgiron-2025071` | [#81](https://github.com/dgiron-2025071/AppCarrousel/pull/81) | Mergeado a `develop` | YAML válido, sin secretos versionados, CI |
+| 2026-11-18 | Release MT-02 — workflow manual de despliegue | `develop` | [#82](https://github.com/dgiron-2025071/AppCarrousel/pull/82) | Mergeado a `main` | YAML válido, sin secretos versionados, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
