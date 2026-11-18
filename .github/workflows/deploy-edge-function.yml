@@ -1,0 +1,43 @@
+name: Despliegue de Edge Function
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: 'Project ref de Supabase (20 letras minusculas)'
+        required: true
+        type: string
+      redirect_url:
+        description: 'APP_REDIRECT_URL autorizado en Authentication > URL Configuration'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  desplegar:
+    name: Desplegar invitar-usuario
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 3.0.0
+
+      - name: Autenticar y enlazar el proyecto
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PROJECT_REF: ${{ inputs.project_ref }}
+        run: |
+          supabase login --token "$SUPABASE_ACCESS_TOKEN" --no-browser
+          supabase link --project-ref "$PROJECT_REF" --yes
+
+      - name: Desplegar la funcion y el redirect
+        env:
+          APP_REDIRECT_URL: ${{ inputs.redirect_url }}
+        run: |
+          supabase functions deploy invitar-usuario --yes
+          supabase secrets set "APP_REDIRECT_URL=$APP_REDIRECT_URL" --yes

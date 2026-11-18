@@ -48,6 +48,14 @@ supabase functions deploy invitar-usuario
 supabase secrets set APP_REDIRECT_URL=io.supabase.carrousel://login-callback
 ```
 
+También se puede desplegar sin CLI local con el workflow manual
+`Despliegue de Edge Function` (`.github/workflows/deploy-edge-function.yml`).
+Requiere los secrets de repositorio `SUPABASE_ACCESS_TOKEN` y
+`SUPABASE_DB_PASSWORD`, y dos inputs al ejecutarlo: `project_ref` y
+`redirect_url`. El flujo usa `supabase/setup-cli@v3` con la CLI 3.0.0, enlaza el
+proyecto, despliega `invitar-usuario` con verificación de JWT activada y escribe
+`APP_REDIRECT_URL`. No versiona tokens ni URLs de un proyecto real.
+
 El redirect debe estar autorizado en `Authentication > URL Configuration`.
 La función usa `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y
 `SUPABASE_ANON_KEY`, que Supabase inyecta automáticamente en el entorno de la
