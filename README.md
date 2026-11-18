@@ -94,7 +94,7 @@ El detalle del contrato, los comandos de despliegue y el workflow manual de GitH
 
 ## Estado del backend — MT-02
 
-> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#82](https://github.com/dgiron-2025071/AppCarrousel/pull/82) del 2026-11-18. Las migraciones `0023`-`0030` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
+> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#84](https://github.com/dgiron-2025071/AppCarrousel/pull/84) del 2026-11-18. Las migraciones `0023`-`0030` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
 
 - [x] **0023** `puestos` por empresa y `perfiles.puesto_id` materializado desde `app_metadata.puesto_id`. `centros_costo.jefe_id` designa al administrador responsable; `private.jefe_de_centro()` sube por `ruta` al jefe más cercano y `private.es_autorizador()` resuelve la cadena. El jefe debe ser un admin activo de la misma empresa, así que la firma de revisión de `0019`-`0021` sigue siendo válida.
 - [x] **0024** Horario semanal por empleado y día ISO (`horarios`), zona horaria IANA y umbral de precisión GPS por empresa, con `private.fecha_local()` y `private.horario_del_dia()` para calcular llegadas y salidas.
@@ -215,7 +215,7 @@ pnpm --dir tools/db-validation test
 
 Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`-`0022` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva, la degradación inmediata de un administrador, el cierre con una geocerca movida o redimensionada durante el turno, la integridad cross-tenant del empleado y del revisor, la revocación inmediata del alcance de un admin movido de subárbol, el rechazo de solicitudes de horas extras solapadas, la firma de la revisión por un administrador activo de la empresa, la revalidación del revisor al reasignar la solicitud y la revocación del perfil al quitar los claims. Las migraciones `0023`-`0030` suman puestos y autorizador jerárquico, horarios con zona horaria y umbral GPS, registro por código de empresa con sincronización del nombre visible, CECOs por lugar, incidencias y ajustes inmutables, reportes con RLS y el puesto declarado por la persona al registrarse. Además, el arnés falla si una tabla pública nueva no habilita RLS, si `anon` recibe escritura, si una función `SECURITY DEFINER` no fija `search_path` o si alguna función de `public`/`private` queda ejecutable por `PUBLIC`/`anon`. Resultado actual: **346 pruebas OK, 0 fallos**.
 
-La app Flutter se valida con `flutter analyze` y **124 pruebas** (`flutter test`) que cubren desde mappers y reglas de dominio hasta widgets de marcaje, formularios, aprobaciones, subárboles, autenticación, perfil, horario del empleado, configuración de empresa, navegación web de `HomeShell` y resumen por zona horaria. El workflow `.github/workflows/validacion.yml` ejecuta todas estas comprobaciones en cada push y pull request.
+La app Flutter se valida con `flutter analyze` y **125 pruebas** (`flutter test`) que cubren desde mappers y reglas de dominio hasta widgets de marcaje, formularios, aprobaciones, subárboles, autenticación, perfil, horario del empleado, configuración de empresa, navegación web de `HomeShell`, resumen por zona horaria y un guard de dependencias entre capas. El workflow `.github/workflows/validacion.yml` ejecuta todas estas comprobaciones en cada push y pull request.
 
 El SQL del importador de centros de costo se ejecuta en el mismo PostgreSQL real:
 
@@ -310,6 +310,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-17 | Release MT-02 — cobertura de la navegación web | `develop` | [#80](https://github.com/dgiron-2025071/AppCarrousel/pull/80) | Mergeado a `main` | `flutter analyze`, 124 pruebas, 346 DB, CI |
 | 2026-11-18 | Workflow manual de despliegue de la Edge Function | `dgiron-2025071` | [#81](https://github.com/dgiron-2025071/AppCarrousel/pull/81) | Mergeado a `develop` | YAML válido, sin secretos versionados, CI |
 | 2026-11-18 | Release MT-02 — workflow manual de despliegue | `develop` | [#82](https://github.com/dgiron-2025071/AppCarrousel/pull/82) | Mergeado a `main` | YAML válido, sin secretos versionados, CI |
+| 2026-11-18 | Guard de arquitectura por capas en `flutter test` | `dgiron-2025071` | [#83](https://github.com/dgiron-2025071/AppCarrousel/pull/83) | Mergeado a `develop` | `flutter analyze`, 125 pruebas, 346 DB, CI |
+| 2026-11-18 | Release MT-02 — guard de arquitectura por capas | `develop` | [#84](https://github.com/dgiron-2025071/AppCarrousel/pull/84) | Mergeado a `main` | `flutter analyze`, 125 pruebas, 346 DB, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -383,7 +385,7 @@ Los mismos comandos de análisis y pruebas se ejecutan automáticamente en
 
 1. Desplegar `invitar-usuario` en el proyecto Supabase real y probar el flujo completo de invitación con correo.
 2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible.
-3. La navegación web de `HomeShell` ya se cubre con `flutter test` inyectando `esWeb: true`: Flutter 3.47.9 no admite `integration_test` en navegador porque el binding no reporta resultados cuando `kIsWeb` es cierto. La cobertura de widgets incluye además `auth`, `dashboard`, `perfil`, `root_gate`, `equipo`, `mi_horario_page`, configuración de empresa y el caso negativo de geocerca congelada. Hoy hay 124 pruebas Flutter.
+3. La navegación web de `HomeShell` ya se cubre con `flutter test` inyectando `esWeb: true`: Flutter 3.47.9 no admite `integration_test` en navegador porque el binding no reporta resultados cuando `kIsWeb` es cierto. La cobertura de widgets incluye además `auth`, `dashboard`, `perfil`, `root_gate`, `equipo`, `mi_horario_page`, configuración de empresa y el caso negativo de geocerca congelada. Hoy hay 125 pruebas Flutter; la nueva prueba de `test/core/arquitectura_test.dart` falla si `domain`, `data`, `presentation` o `core` importan dependencias de otra capa.
 4. MT-01 cerrada con el merge de `develop` a `main` (PR #39, `894f2b5`).
 
 ## Seguridad
