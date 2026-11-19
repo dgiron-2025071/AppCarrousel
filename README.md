@@ -94,7 +94,7 @@ El detalle del contrato, los comandos de despliegue y el workflow manual de GitH
 
 ## Estado del backend — MT-02
 
-> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#84](https://github.com/dgiron-2025071/AppCarrousel/pull/84) del 2026-11-18. Las migraciones `0023`-`0030` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
+> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#86](https://github.com/dgiron-2025071/AppCarrousel/pull/86) del 2026-11-19. Las migraciones `0023`-`0030` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
 
 - [x] **0023** `puestos` por empresa y `perfiles.puesto_id` materializado desde `app_metadata.puesto_id`. `centros_costo.jefe_id` designa al administrador responsable; `private.jefe_de_centro()` sube por `ruta` al jefe más cercano y `private.es_autorizador()` resuelve la cadena. El jefe debe ser un admin activo de la misma empresa, así que la firma de revisión de `0019`-`0021` sigue siendo válida.
 - [x] **0024** Horario semanal por empleado y día ISO (`horarios`), zona horaria IANA y umbral de precisión GPS por empresa, con `private.fecha_local()` y `private.horario_del_dia()` para calcular llegadas y salidas.
@@ -312,6 +312,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-18 | Release MT-02 — workflow manual de despliegue | `develop` | [#82](https://github.com/dgiron-2025071/AppCarrousel/pull/82) | Mergeado a `main` | YAML válido, sin secretos versionados, CI |
 | 2026-11-18 | Guard de arquitectura por capas en `flutter test` | `dgiron-2025071` | [#83](https://github.com/dgiron-2025071/AppCarrousel/pull/83) | Mergeado a `develop` | `flutter analyze`, 125 pruebas, 346 DB, CI |
 | 2026-11-18 | Release MT-02 — guard de arquitectura por capas | `develop` | [#84](https://github.com/dgiron-2025071/AppCarrousel/pull/84) | Mergeado a `main` | `flutter analyze`, 125 pruebas, 346 DB, CI |
+| 2026-11-19 | Plantilla segura de `supabase/config.toml` y ignore de claves locales | `dgiron-2025071` | [#85](https://github.com/dgiron-2025071/AppCarrousel/pull/85) | Mergeado a `develop` | CLI 3.0.0 parsea la plantilla, sin secretos, CI |
+| 2026-11-19 | Release MT-02 — plantilla local de Supabase | `develop` | [#86](https://github.com/dgiron-2025071/AppCarrousel/pull/86) | Mergeado a `main` | CLI 3.0.0 parsea la plantilla, sin secretos, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -365,6 +367,7 @@ npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
 npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 # Backend con Supabase local (cuando Docker esté disponible)
+cp supabase/config.toml.example supabase/config.toml
 supabase start
 supabase db reset
 
@@ -378,13 +381,16 @@ flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 ```
 
 Los mismos comandos de análisis y pruebas se ejecutan automáticamente en
-`.github/workflows/validacion.yml`. Los que usan la CLI de Supabase requieren un
-`supabase/config.toml` local, que no se versiona.
+`.github/workflows/validacion.yml`. Los que usan la CLI de Supabase parten de
+`supabase/config.toml.example`: se copia a `supabase/config.toml`, que queda
+ignorado por Git junto con `supabase/.env` para no versionar claves locales. La
+plantilla fue verificada con la CLI 3.0.0; en este entorno `supabase status` solo
+falla por la ausencia de Docker.
 
 ## Siguientes pasos
 
 1. Desplegar `invitar-usuario` en el proyecto Supabase real y probar el flujo completo de invitación con correo.
-2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible.
+2. Validar las migraciones con `supabase db reset` y JWT reales de Supabase cuando Docker/WSL2 esté disponible, partiendo de `supabase/config.toml.example`.
 3. La navegación web de `HomeShell` ya se cubre con `flutter test` inyectando `esWeb: true`: Flutter 3.47.9 no admite `integration_test` en navegador porque el binding no reporta resultados cuando `kIsWeb` es cierto. La cobertura de widgets incluye además `auth`, `dashboard`, `perfil`, `root_gate`, `equipo`, `mi_horario_page`, configuración de empresa y el caso negativo de geocerca congelada. Hoy hay 125 pruebas Flutter; la nueva prueba de `test/core/arquitectura_test.dart` falla si `domain`, `data`, `presentation` o `core` importan dependencias de otra capa.
 4. MT-01 cerrada con el merge de `develop` a `main` (PR #39, `894f2b5`).
 
