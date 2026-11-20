@@ -110,7 +110,7 @@ npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 El arnés levanta un servidor HTTP que emula los endpoints de Supabase Auth y
 PostgREST usados por la función, arranca `invitar-usuario` como subproceso en un
-puerto libre (`PORT`) y verifica **31 escenarios**:
+puerto libre (`PORT`) y verifica **33 escenarios**:
 
 - CORS, método distinto de `POST` y ausencia o invalidez de la sesión.
 - Perfil inexistente, inactivo, con rol distinto de `admin` o con error de
@@ -129,16 +129,24 @@ puerto libre (`PORT`) y verifica **31 escenarios**:
   `empresa_id` sale del perfil del solicitante y no del cuerpo.
 - Correo ya registrado (`409`), error genérico de invitación (`502`).
 - Error al escribir `app_metadata`: responde `500` y borra el usuario invitado
-  (rollback verificado).
+  (rollback verificado). Si el borrado también falla, responde `500` con un
+  mensaje distinto y registra una alerta, sin afirmar que se revirtió.
+- Acepta espacios circundantes en `rol` y `centro_costo_id`.
 
 Las consultas de perfil y centro usan `.limit(1)` en lugar de `.maybeSingle()`
 para que el contrato con PostgREST sea explícito y no dependa de códigos
 `406/PGRST116`.
 
+El workflow manual `.github/workflows/deploy-edge-function.yml` ejecuta primero
+`deno check`, `deno lint`, `deno fmt --check` y `deno test -A` en un job
+`validar`; el despliegue depende de él (`needs: [validar]`), así que no publica
+código que no haya pasado la validación.
+
 El despliegue y la prueba contra un proyecto Supabase real quedan pendientes de
 credenciales; no se versionan claves ni tokens.
 
-> `supabase/config.toml` tampoco se versiona. Los comandos de la CLI que lo
-> requieren (`supabase start`, `supabase functions serve` y `supabase db reset`)
-> necesitan un config local generado con `supabase init` o el del proyecto
-> enlazado. El arnés de base de datos, las pruebas Deno y la CI no lo usan.
+> `supabase/config.toml` tampoco se versiona: se copia desde
+> `supabase/config.toml.example`. Los comandos de la CLI que lo requieren
+> (`supabase start`, `supabase functions serve` y `supabase db reset`) necesitan
+> ese config local o el del proyecto enlazado. El arnés de base de datos, las
+> pruebas Deno y la CI no lo usan.

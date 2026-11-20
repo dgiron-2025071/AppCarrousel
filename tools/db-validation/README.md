@@ -173,7 +173,7 @@ dejan datos ni privilegios modificados.
   las vistas de reporte.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **346 pruebas OK, 0 FAIL**.
+Resultado actual: **354 pruebas OK, 0 FAIL**.
 
 ## Límites
 

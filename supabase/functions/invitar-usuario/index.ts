@@ -145,9 +145,9 @@ Deno.serve(
     const nombre = typeof cuerpo.nombre_completo === "string"
       ? cuerpo.nombre_completo.trim()
       : "";
-    const rol = typeof cuerpo.rol === "string" ? cuerpo.rol : "";
+    const rol = typeof cuerpo.rol === "string" ? cuerpo.rol.trim() : "";
     const centroId = typeof cuerpo.centro_costo_id === "string"
-      ? cuerpo.centro_costo_id
+      ? cuerpo.centro_costo_id.trim()
       : "";
 
     if (!EMAIL.test(email) || email.length > 320) {
@@ -269,8 +269,24 @@ Deno.serve(
     );
 
     if (claimsError) {
-      // Rollback: no se deja un usuario de Auth sin perfil ni alcance.
-      await admin.auth.admin.deleteUser(invitacion.user.id);
+      // Rollback: no se deja un usuario de Auth sin perfil ni alcance. Si la
+      // reversión también falla, decirlo explícitamente para que el admin sepa
+      // que queda una cuenta huérfana que hay que revisar a mano.
+      const { error: rollbackError } = await admin.auth.admin
+        .deleteUser(invitacion.user.id);
+
+      if (rollbackError) {
+        console.error(
+          "ALERTA: no se pudo revertir la invitación de",
+          invitacion.user.id,
+          rollbackError.message,
+        );
+        return error(
+          "No se pudo asignar el alcance ni revertir la invitación. Revisa el usuario creado en Auth.",
+          500,
+        );
+      }
+
       return error(
         "No se pudo asignar el alcance al usuario. La invitación se revirtió.",
         500,

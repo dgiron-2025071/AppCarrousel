@@ -14,7 +14,8 @@
 --
 -- Modelo:
 --   `horarios` define una franja por día ISO (1 = lunes … 7 = domingo). Una
---   salida menor o igual a la entrada representa un turno que cruza medianoche.
+--   salida estrictamente menor que la entrada representa un turno que cruza
+--   medianoche; la igualdad se rechaza porque no define franja horaria.
 --   La zona horaria de la empresa decide qué día local corresponde a un
 --   instante; sin ella, las incidencias de llegada/salida serían ambiguas.
 --
