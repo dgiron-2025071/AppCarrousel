@@ -65,6 +65,7 @@ interface EstadoFalso {
   centroError: boolean;
   invitacionError: ErrorFalso | null;
   claimsError: boolean;
+  deleteError: boolean;
   usuarioInvitadoId: string;
   peticiones: PeticionRegistrada[];
   usuariosEliminados: string[];
@@ -109,6 +110,7 @@ function estadoInicial(): EstadoFalso {
     centroError: false,
     invitacionError: null,
     claimsError: false,
+    deleteError: false,
     usuarioInvitadoId: INVITADO_ID,
     peticiones: [],
     usuariosEliminados: [],
@@ -216,6 +218,9 @@ async function manejador(req: Request): Promise<Response> {
     }
     if (req.method === "DELETE") {
       estado.usuariosEliminados.push(id);
+      if (estado.deleteError) {
+        return responder({ message: "no se pudo borrar el usuario" }, 500);
+      }
       return responder({});
     }
   }
@@ -841,6 +846,39 @@ Deno.test({
         peticion("GET", `/auth/v1/admin/users/${INVITADO_ID}`);
         peticion("DELETE", `/auth/v1/admin/users/${INVITADO_ID}`);
       });
+
+      await t.step(
+        "fallo al revertir la invitación se reporta sin prometer reversión",
+        async () => {
+          estado = estadoInicial();
+          estado.claimsError = true;
+          estado.deleteError = true;
+          const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+          assertEquals(res.status, 500);
+          assertEquals(res.json, {
+            error:
+              "No se pudo asignar el alcance ni revertir la invitación. Revisa el usuario creado en Auth.",
+          });
+          assertEquals(estado.usuariosEliminados, [INVITADO_ID]);
+        },
+      );
+
+      await t.step(
+        "acepta espacios en el rol y el centro de costo",
+        async () => {
+          estado = estadoInicial();
+          const res = await invocar(funcion.base, {
+            body: {
+              ...CUERPO_VALIDO,
+              rol: " empleado ",
+              centro_costo_id: ` ${CENTRO_HIJO} `,
+            },
+          });
+          assertEquals(res.status, 201);
+          assertEquals(res.json?.rol, "empleado");
+          assertEquals(res.json?.centro_costo_id, CENTRO_HIJO);
+        },
+      );
     } finally {
       await funcion.detener();
       await falso.detener();

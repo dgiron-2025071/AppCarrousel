@@ -23,6 +23,8 @@ Opciones:
   --empresa <código>   Código de la empresa destino (obligatorio).
   --archivo <ruta>     CSV de entrada (obligatorio).
   --salida <ruta>      Archivo SQL de salida. Sin esta opción usa stdout.
+  --forzar-raices      Desprende los centros declarados sin padre. Sin esta
+                       opción un CSV parcial no rompe jerarquías existentes.
   --help               Muestra esta ayuda.
 
 Columnas del CSV:
@@ -42,6 +44,11 @@ function leerArgumentos(argv) {
 
     if (argumento === '--help' || argumento === '-h') {
       opciones.ayuda = true;
+      continue;
+    }
+
+    if (argumento === '--forzar-raices') {
+      opciones.forzarRaices = true;
       continue;
     }
 
@@ -96,7 +103,12 @@ async function principal() {
     process.stderr.write(`ADVERTENCIA: ${advertencia}\n`);
   }
 
-  const sql = generarSql({ empresa: opciones.empresa, nodos, advertencias });
+  const sql = generarSql({
+    empresa: opciones.empresa,
+    nodos,
+    advertencias,
+    forzarRaices: opciones.forzarRaices === true,
+  });
 
   if (opciones.salida) {
     const rutaSalida = resolve(opciones.salida);

@@ -381,7 +381,7 @@ on public.solicitudes_horas_extras
 for each row execute function private.solicitudes_validar_lugar();
 
 -- Se reemplaza la política de alta para incorporar el lugar. El resto de las
--- condiciones se conserva tal como está en 0006.
+-- condiciones se conserva tal como está en 0007 (perfil propio activo).
 drop policy solicitudes_insert_propia on public.solicitudes_horas_extras;
 
 create policy solicitudes_insert_propia

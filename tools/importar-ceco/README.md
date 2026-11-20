@@ -23,7 +23,12 @@ Sin `--salida`, el SQL se escribe en stdout y los mensajes en stderr.
 | `--empresa` | Código de la empresa destino (obligatorio). |
 | `--archivo` | CSV de entrada (obligatorio). |
 | `--salida` | Archivo SQL de salida (opcional). |
+| `--forzar-raices` | Desprende los centros declarados sin padre (opcional). |
 | `--help` | Muestra la ayuda. |
+
+Sin `--forzar-raices`, un CSV parcial que omite el padre **no** modifica la
+jerarquía de centros ya existentes. Úsalo solo cuando quieras recolocar raíces
+de forma explícita.
 
 ## Formato del CSV
 
@@ -72,12 +77,13 @@ aborta completa: no queda una jerarquía a medias.
 
 ## SQL generado
 
-1. Verifica que la empresa exista por `codigo`.
+1. Verifica que la empresa exista y esté activa por `codigo`; una empresa dada
+   de baja aborta la importación, igual que hace la Edge Function de invitación.
 2. Da de alta o renombra los centros con
    `insert ... on conflict (empresa_id, codigo) do update`.
-3. Comprueba que todos los padres existan en la empresa.
+3. Comprueba que todos los padres existan en la empresa activa.
 4. Enlaza cada centro con su padre (dispara la propagación de `ruta`).
-5. Deja como raíz los centros sin padre declarado.
+5. Solo con `--forzar-raices`, desprende los centros declarados sin padre.
 
 Todo ocurre en una transacción `begin`/`commit`, por lo que repetir el archivo
 deja el mismo resultado y no duplica filas.

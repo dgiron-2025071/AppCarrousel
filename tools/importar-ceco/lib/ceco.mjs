@@ -151,10 +151,15 @@ function comilla(valor) {
 
 /**
  * Genera SQL idempotente para una empresa. Se ejecuta con `service_role` porque
- * mover centros y crear raíces está reservado a ese rol. El bloque valida la
- * empresa y los padres antes de enlazar, para no dejar una jerarquía a medias.
+ * mover centros y crear raíces está reservado a ese rol. El bloque valida que la
+ * empresa esté activa y que los padres existan antes de enlazar, para no dejar
+ * una jerarquía a medias.
+ *
+ * Por defecto no desprende centros ya existentes: un CSV parcial que omite el
+ * padre no debe borrar la ruta de un centro con jerarquía. `forzarRaices` debe
+ * pedirse explícitamente para reescribir esas raíces.
  */
-export function generarSql({ empresa, nodos, advertencias = [] }) {
+export function generarSql({ empresa, nodos, advertencias = [], forzarRaices = false }) {
   const codigoEmpresa = String(empresa ?? '').trim();
   if (!codigoEmpresa) {
     throw new Error('Falta el código de empresa');
@@ -195,20 +200,20 @@ export function generarSql({ empresa, nodos, advertencias = [] }) {
   lineas.push(
     'begin;',
     '',
-    '-- 1. La empresa debe existir.',
+    '-- 1. La empresa debe existir y estar activa.',
     'do $$',
     'begin',
     '  if not exists (',
-    `    select 1 from public.empresas where codigo = ${comilla(codigoEmpresa)}`,
+    `    select 1 from public.empresas where codigo = ${comilla(codigoEmpresa)} and activa`,
     '  ) then',
-    `    raise exception 'La empresa % no existe', ${comilla(codigoEmpresa)};`,
+    `    raise exception 'La empresa % no existe o está suspendida', ${comilla(codigoEmpresa)};`,
     '  end if;',
     'end',
     '$$;',
     '',
     '-- 2. Alta o renombrado idempotente de los centros.',
     'with empresa as (',
-    `  select id from public.empresas where codigo = ${comilla(codigoEmpresa)}`,
+    `  select id from public.empresas where codigo = ${comilla(codigoEmpresa)} and activa`,
     '), datos (codigo, nombre) as (',
     '  values',
     valoresAltas,
@@ -240,6 +245,7 @@ export function generarSql({ empresa, nodos, advertencias = [] }) {
       '    from public.centros_costo c',
       '    join public.empresas e on e.id = c.empresa_id',
       `    where e.codigo = ${comilla(codigoEmpresa)}`,
+      '      and e.activa',
       '      and c.codigo = d.padre_codigo',
       '  );',
       '',
@@ -251,7 +257,7 @@ export function generarSql({ empresa, nodos, advertencias = [] }) {
       '',
       '-- 4. Enlace de cada centro con su padre.',
       'with empresa as (',
-      `  select id from public.empresas where codigo = ${comilla(codigoEmpresa)}`,
+      `  select id from public.empresas where codigo = ${comilla(codigoEmpresa)} and activa`,
       '), datos (codigo, padre_codigo) as (',
       '  values',
       valoresPadres,
@@ -270,11 +276,11 @@ export function generarSql({ empresa, nodos, advertencias = [] }) {
     );
   }
 
-  if (raices.length > 0) {
+  if (forzarRaices && raices.length > 0) {
     lineas.push(
-      '-- 5. Los centros sin padre declarado quedan como raíz.',
+      '-- 5. Solo con --forzar-raices: desprender los centros declarados como raíz.',
       'with empresa as (',
-      `  select id from public.empresas where codigo = ${comilla(codigoEmpresa)}`,
+      `  select id from public.empresas where codigo = ${comilla(codigoEmpresa)} and activa`,
       ')',
       'update public.centros_costo c',
       '   set padre_id = null',
@@ -282,6 +288,11 @@ export function generarSql({ empresa, nodos, advertencias = [] }) {
       ' where c.empresa_id = e.id',
       `   and c.codigo in (${raices})`,
       '   and c.padre_id is not null;',
+      '',
+    );
+  } else if (raices.length > 0) {
+    lineas.push(
+      '-- 5. No se desprenden centros existentes: hacen falta --forzar-raices para mover raíces.',
       '',
     );
   }
