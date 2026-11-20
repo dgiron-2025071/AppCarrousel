@@ -94,7 +94,7 @@ test('acumula todos los errores de las filas', () => {
   assert.equal(plan.errores.length, 3);
 });
 
-test('genera SQL idempotente con alta, enlace y raíz', () => {
+test('genera SQL idempotente con alta y enlace sin desprender jerarquías', () => {
   const { nodos } = construirPlan([
     { linea: 2, codigo: '100', nombre: 'Parque', padre: '' },
     { linea: 3, codigo: '110', nombre: 'Operaciones', padre: '100' },
@@ -104,8 +104,30 @@ test('genera SQL idempotente con alta, enlace y raíz', () => {
   assert.match(sql, /begin;/);
   assert.match(sql, /on conflict \(empresa_id, codigo\) do update/);
   assert.match(sql, /raise exception 'Padres no encontrados en la empresa %: %'/);
-  assert.match(sql, /set padre_id = null/);
+  assert.doesNotMatch(sql, /set padre_id = null/);
   assert.match(sql, /commit;/);
+});
+
+test('solo desprende raíces cuando se pide --forzar-raices', () => {
+  const { nodos } = construirPlan([
+    { linea: 2, codigo: '100', nombre: 'Parque', padre: '' },
+  ]);
+  const sql = generarSql({ empresa: 'EMPRESA-A', nodos, forzarRaices: true });
+
+  assert.match(sql, /set padre_id = null/);
+  assert.match(sql, /--forzar-raices/);
+});
+
+test('exige que la empresa esté activa en todas las consultas', () => {
+  const { nodos } = construirPlan([
+    { linea: 2, codigo: '100', nombre: 'Parque', padre: '' },
+    { linea: 3, codigo: '110', nombre: 'Operaciones', padre: '100' },
+  ]);
+  const sql = generarSql({ empresa: 'EMPRESA-A', nodos, forzarRaices: true });
+
+  assert.match(sql, /where codigo = 'EMPRESA-A' and activa/);
+  assert.equal((sql.match(/and (?:e\.)?activa/g) ?? []).length, 5);
+  assert.match(sql, /no existe o está suspendida/);
 });
 
 test('escapa comillas simples en códigos y nombres', () => {
