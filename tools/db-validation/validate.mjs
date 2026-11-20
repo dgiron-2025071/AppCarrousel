@@ -377,7 +377,7 @@ eq('todas las tablas públicas tienen RLS', await scalar(`
   select count(*)::int from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public'
-    and c.relkind = 'r'
+    and c.relkind in ('r', 'p')
     and not c.relrowsecurity
 `), 0);
 eq('anon no tiene escritura en tablas públicas', await scalar(`
@@ -2360,6 +2360,27 @@ eq('el admin asigna el jefe de un centro de su alcance',
 
 await q('begin');
 try {
+  await q('savepoint jefe_vigente');
+
+  await q('update public.perfiles set activo = false where id = $1', [U.gerA]);
+  eq('la baja del jefe limpia su designación en el centro',
+    await scalar('select jefe_id from public.centros_costo where id = $1', [A.child]), null);
+
+  await q('rollback to savepoint jefe_vigente');
+  await q(`update public.perfiles set rol = 'empleado' where id = $1`, [U.gerA]);
+  eq('la degradación del jefe limpia su designación en el centro',
+    await scalar('select jefe_id from public.centros_costo where id = $1', [A.child]), null);
+
+  await q('rollback to savepoint jefe_vigente');
+  await q('update public.perfiles set centro_costo_id = $1 where id = $2', [A.root, U.gerA]);
+  eq('mover de alcance al jefe conserva una designación válida',
+    await scalar('select jefe_id from public.centros_costo where id = $1', [A.child]), U.gerA);
+} finally {
+  await q('rollback');
+}
+
+await q('begin');
+try {
   await q(`insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data)
     values ($1, 'puesto.ok@example.com', $2::jsonb,
             '{"nombre_completo":"Puesto OK"}'::jsonb)`, [
@@ -2893,6 +2914,48 @@ eq('marcar en un parque de otro centro genera incidencia',
             where jornada_id = $1`, [T.jPark])).rows.map((r) => r.tipo),
   ['parque_distinto']);
 
+// El turno nocturno se crea dentro de una transacción que se revierte: así no
+// deja un horario persistente que altere los conteos de los grupos anteriores.
+await q('begin');
+try {
+  const jornadaNocturna = randomUUID();
+  const fechaNocturna = `(
+    date_trunc('day', now() at time zone 'America/Guatemala')::date
+    + (((${otroDia})::int
+       - extract(isodow from (now() at time zone 'America/Guatemala'))::int + 7) % 7)
+  )`;
+  const entradaNocturna =
+    `(((${fechaNocturna}) + interval '22:15') at time zone 'America/Guatemala')`;
+  const salidaNocturna =
+    `(((${fechaNocturna}) + 1 + interval '05:30') at time zone 'America/Guatemala')`;
+
+  await q(`
+    insert into public.horarios (
+      empresa_id, empleado_id, dia_semana, hora_entrada, hora_salida,
+      tolerancia_entrada_min, tolerancia_salida_min
+    ) values ($1, $2, ${otroDia}, '22:00', '06:00', 10, 10)
+  `, [A.empresa, U.empA]);
+
+  await q(`
+    insert into public.jornadas (
+      id, empresa_id, empleado_id, parque_id, entrada_en, salida_en,
+      entrada_lat, entrada_lon, entrada_precision_metros, entrada_dentro_geocerca,
+      salida_lat, salida_lon, salida_precision_metros, salida_dentro_geocerca
+    ) values (
+      $1, $2, $3, $4, ${entradaNocturna}, ${salidaNocturna},
+      14.6350, -90.5070, 5, true, 14.6350, -90.5070, 5, true
+    )
+  `, [jornadaNocturna, A.empresa, U.empA, P.child]);
+
+  eq('un turno nocturno cruza medianoche sin incidencias de horario',
+    (await q(`select tipo::text, minutos from public.incidencias_jornada
+               where jornada_id = $1 order by tipo::text`, [jornadaNocturna])).rows
+      .map((r) => [r.tipo, r.minutos]),
+    [['llegada_tarde', 15], ['salida_temprana', 30]]);
+} finally {
+  await q('rollback');
+}
+
 eq('el empleado ve sus propias incidencias',
   await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () => ({
     propias: (await q('select count(*)::int from public.incidencias_jornada')).rows[0].count,
@@ -3158,6 +3221,56 @@ ok('la importación se aborta si el padre no existe',
   `message=${errorImport?.message}`);
 eq('el centro huérfano no queda creado',
   await scalar(`select count(*)::int from public.centros_costo where codigo = 'IMP900'`), 0);
+
+const empresaSuspendida = '3f100000-0000-4000-8000-000000000001';
+await q(`
+  insert into public.empresas (id, codigo, nombre, activa)
+  values ($1, 'EMPRESA-SUSPENDIDA', 'Empresa suspendida', false)
+`, [empresaSuspendida]);
+let errorSuspendida = null;
+try {
+  await q(generarSql({ empresa: 'EMPRESA-SUSPENDIDA', nodos: planImport.nodos }));
+} catch (error) {
+  errorSuspendida = error;
+}
+if (errorSuspendida) await q('rollback');
+
+ok('la importación se aborta si la empresa está suspendida',
+  /no existe o está suspendida/.test(errorSuspendida?.message ?? ''),
+  `message=${errorSuspendida?.message}`);
+eq('la empresa suspendida no recibe centros',
+  await scalar(`
+    select count(*)::int
+    from public.centros_costo c
+    where c.empresa_id = $1
+  `, [empresaSuspendida]), 0);
+
+const planParcial = construirPlan([
+  { linea: 2, codigo: 'IMP120', nombre: 'Mantenimiento Importado', padre: '' },
+]);
+
+await q(generarSql({ empresa: 'EMPRESA-A', nodos: planParcial.nodos }));
+eq('un CSV parcial no desprende un centro con jerarquía',
+  await scalar(`
+    select p.codigo::text
+    from public.centros_costo c
+    join public.empresas e on e.id = c.empresa_id
+    join public.centros_costo p on p.id = c.padre_id
+    where e.codigo = 'EMPRESA-A' and c.codigo = 'IMP120'
+  `), 'IMP110');
+
+await q(generarSql({
+  empresa: 'EMPRESA-A',
+  nodos: planParcial.nodos,
+  forzarRaices: true,
+}));
+eq('--forzar-raices sí desprende el centro',
+  await scalar(`
+    select c.padre_id is null
+    from public.centros_costo c
+    join public.empresas e on e.id = c.empresa_id
+    where e.codigo = 'EMPRESA-A' and c.codigo = 'IMP120'
+  `), true);
 
 // -----------------------------------------------------------------------------
 // Sin claims y anon
