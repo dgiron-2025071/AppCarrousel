@@ -110,7 +110,7 @@ npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 El arnés levanta un servidor HTTP que emula los endpoints de Supabase Auth y
 PostgREST usados por la función, arranca `invitar-usuario` como subproceso en un
-puerto libre (`PORT`) y verifica **33 escenarios**:
+puerto libre (`PORT`) y verifica **36 escenarios**:
 
 - CORS, método distinto de `POST` y ausencia o invalidez de la sesión.
 - Perfil inexistente, inactivo, con rol distinto de `admin` o con error de
@@ -127,7 +127,11 @@ puerto libre (`PORT`) y verifica **33 escenarios**:
 - Centro de otra empresa, centro fuera del subárbol y error al consultarlo.
 - Invitación exitosa de `empleado` y de `admin`, comprobando que
   `empresa_id` sale del perfil del solicitante y no del cuerpo.
-- Correo ya registrado (`409`), error genérico de invitación (`502`).
+- Correo ya registrado (`409`). Si GoTrue crea el usuario pero falla el correo
+  (`502`), se lista Auth y solo se borra la cuenta huérfana del mismo correo,
+  creada en los últimos 10 minutos y sin `app_metadata.empresa_id`; un usuario
+  con claims nunca se toca. Si falla el listado o el borrado, responde `500` con
+  un mensaje distinto y registra una alerta, sin afirmar que se limpió nada.
 - Error al escribir `app_metadata`: responde `500` y borra el usuario invitado
   (rollback verificado). Si el borrado también falla, responde `500` con un
   mensaje distinto y registra una alerta, sin afirmar que se revirtió.

@@ -152,9 +152,13 @@ dejan datos ni privilegios modificados.
   misma empresa; las solicitudes históricas sin lugar siguen siendo válidas.
 - Incidencias y ajustes: al cerrar se calculan `llegada_tarde`,
   `salida_temprana`, `parque_distinto` y `gps_impreciso` con la zona y el horario
-  del empleado. `jornadas_ajustes` es inmutable (sin UPDATE ni DELETE) y
-  `ajustar_jornada` exige motivo y rango coherente, rechaza jornadas abiertas o
-  de otra empresa, actualiza la jornada y recalcula las incidencias.
+  del empleado. Cerrar enviando solo `salida_lat`/`salida_lon` también genera
+  incidencias: el trigger AFTER observa toda actualización porque `salida_en` lo
+  sella un trigger BEFORE. Hay índices por jornada y para la FK compuesta, y la
+  limpieza del jefe acota por empresa. `jornadas_ajustes` es inmutable (sin
+  UPDATE ni DELETE) y `ajustar_jornada` exige motivo y rango coherente, rechaza
+  jornadas abiertas o de otra empresa, actualiza la jornada y recalcula las
+  incidencias.
 - Reportes: `reporte_horas_extras` y `cumplimiento_jornadas` usan
   `security_invoker = true`; el empleado solo ve lo propio, el admin su subárbol
   y ninguna empresa ve a otra. El cálculo de horas y el cruce con horario e
@@ -168,12 +172,13 @@ dejan datos ni privilegios modificados.
   restaurar los claims actualiza el alcance pero no reactiva una baja.
 - No autoelevación: `authenticated` no puede escribir `rol`, `empresa_id`,
   `empleado_id`, `centro_costo_id`, `puesto_id`, `ruta`, `actualizado_por` ni
-  `auth.users`.
+  `auth.users`; además no tiene `UPDATE` de tabla ni permisos de columna para
+  `rol`, `empresa_id` o `centro_costo_id` en `perfiles`.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla ni a
   las vistas de reporte.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **354 pruebas OK, 0 FAIL**.
+Resultado actual: **359 pruebas OK, 0 FAIL**.
 
 ## Límites
 

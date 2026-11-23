@@ -149,6 +149,16 @@ function comilla(valor) {
   return `'${String(valor).replaceAll("'", "''")}'`;
 }
 
+// Un comentario SQL termina en el salto de línea. Aun validando la empresa,
+// se colapsan los caracteres de control para que ningún dato pueda convertirse
+// en una sentencia nueva si el mensaje cambia en el futuro.
+function sanitizarComentario(valor) {
+  return String(valor ?? '')
+    .replaceAll(/[\u0000-\u001F\u007F]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Genera SQL idempotente para una empresa. Se ejecuta con `service_role` porque
  * mover centros y crear raíces está reservado a ese rol. El bloque valida que la
@@ -163,6 +173,9 @@ export function generarSql({ empresa, nodos, advertencias = [], forzarRaices = f
   const codigoEmpresa = String(empresa ?? '').trim();
   if (!codigoEmpresa) {
     throw new Error('Falta el código de empresa');
+  }
+  if (/[\u0000-\u001F\u007F]/.test(codigoEmpresa)) {
+    throw new Error('El código de empresa contiene caracteres de control');
   }
   if (!Array.isArray(nodos) || nodos.length === 0) {
     throw new Error('No hay centros de costo para importar');
@@ -184,14 +197,14 @@ export function generarSql({ empresa, nodos, advertencias = [], forzarRaices = f
 
   const lineas = [
     '-- Generado por tools/importar-ceco.',
-    `-- Empresa: ${codigoEmpresa}`,
+    `-- Empresa: ${sanitizarComentario(codigoEmpresa)}`,
     '-- Ejecutar con service_role: crea raíces y mueve centros de costo.',
     '-- La importación es idempotente: se puede repetir sin duplicar filas.',
     '',
   ];
 
   for (const advertencia of advertencias) {
-    lineas.push(`-- ADVERTENCIA: ${String(advertencia).replaceAll(/\s+/g, ' ')}`);
+    lineas.push(`-- ADVERTENCIA: ${sanitizarComentario(advertencia)}`);
   }
   if (advertencias.length > 0) {
     lineas.push('');

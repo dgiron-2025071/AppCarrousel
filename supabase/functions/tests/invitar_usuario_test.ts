@@ -53,8 +53,17 @@ interface PeticionRegistrada {
   body: string;
 }
 
+interface UsuarioFalso {
+  id: string;
+  email: string | null;
+  created_at: string;
+  app_metadata: Record<string, unknown>;
+}
+
 interface EstadoFalso {
   sesionValida: boolean;
+  usuarios: UsuarioFalso[];
+  usuariosError: boolean;
   appMetadata: Record<string, unknown>;
   appMetadataUsuario: Record<string, unknown>;
   perfil: PerfilFalso | null;
@@ -81,6 +90,8 @@ const CUERPO_VALIDO = {
 function estadoInicial(): EstadoFalso {
   return {
     sesionValida: true,
+    usuarios: [],
+    usuariosError: false,
     appMetadata: {
       empresa_id: EMPRESA_ID,
       centro_costo_id: CENTRO_ADMIN,
@@ -199,6 +210,13 @@ async function manejador(req: Request): Promise<Response> {
     return responder({
       user: { id: estado.usuarioInvitadoId, email: email ?? null },
     });
+  }
+
+  if (url.pathname === "/auth/v1/admin/users" && req.method === "GET") {
+    if (estado.usuariosError) {
+      return responder({ message: "fallo al listar usuarios" }, 500);
+    }
+    return responder({ users: estado.usuarios, aud: "", nextPage: null });
   }
 
   const usuarioAdmin = url.pathname.match(
@@ -829,6 +847,51 @@ Deno.test({
         assertEquals(res.json, {
           error:
             "No se pudo enviar la invitación. Revisa la configuración de correo.",
+        });
+        assertEquals(estado.usuariosEliminados, []);
+      });
+
+      await t.step("error de correo limpia la cuenta huérfana", async () => {
+        estado = estadoInicial();
+        estado.invitacionError = { status: 500, message: "smtp no disponible" };
+        estado.usuarios = [{
+          id: INVITADO_ID,
+          email: "nuevo@empresa.com",
+          created_at: new Date().toISOString(),
+          app_metadata: {},
+        }];
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 502);
+        assertEquals(res.json, {
+          error:
+            "No se pudo enviar la invitación. Se eliminó la cuenta huérfana; vuelve a intentar.",
+        });
+        assertEquals(estado.usuariosEliminados, [INVITADO_ID]);
+      });
+
+      await t.step("no elimina una cuenta que ya tiene claims", async () => {
+        estado = estadoInicial();
+        estado.invitacionError = { status: 500, message: "smtp no disponible" };
+        estado.usuarios = [{
+          id: INVITADO_ID,
+          email: "nuevo@empresa.com",
+          created_at: new Date().toISOString(),
+          app_metadata: { empresa_id: EMPRESA_ID },
+        }];
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 502);
+        assertEquals(estado.usuariosEliminados, []);
+      });
+
+      await t.step("fallo al listar usuarios no afirma limpieza", async () => {
+        estado = estadoInicial();
+        estado.invitacionError = { status: 500, message: "smtp no disponible" };
+        estado.usuariosError = true;
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 500);
+        assertEquals(res.json, {
+          error:
+            "No se pudo enviar la invitación ni verificar si quedó una cuenta huérfana. Revisa Auth.",
         });
         assertEquals(estado.usuariosEliminados, []);
       });
