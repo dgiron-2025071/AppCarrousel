@@ -324,6 +324,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-20 | Release MT-02 — auditoría de backend y endurecimiento | `develop` | [#88](https://github.com/dgiron-2025071/AppCarrousel/pull/88) | Mergeado a `main` | 354 DB, 27 importador, 33 pasos Deno, CI |
 | 2026-11-23 | Auditoría de backend — huérfanos de invitación, incidencias al cerrar e importador seguro | `dgiron-2025071` | [#89](https://github.com/dgiron-2025071/AppCarrousel/pull/89) | Mergeado a `develop` | 359 DB, 32 importador, 36 pasos Deno, CI |
 | 2026-11-23 | Release MT-02 — reconciliación de invitaciones e índices de incidencias | `develop` | [#90](https://github.com/dgiron-2025071/AppCarrousel/pull/90) | Mergeado a `main` | 359 DB, 32 importador, 36 pasos Deno, CI |
+| 2026-11-23 | Backend — tokens de sincronización, paginación de invitaciones e importador acotado | `dgiron-2025071` | [#91](https://github.com/dgiron-2025071/AppCarrousel/pull/91) | En revisión | 366 DB, 38 importador, 40 pasos Deno, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
