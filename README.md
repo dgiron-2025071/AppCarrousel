@@ -11,7 +11,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 | Aplicación móvil | Flutter 3.47.9 / Dart 3.13.7, Riverpod, Material 3 | Implementada (login, registro, dashboard, marcaje, horas extras, aprobaciones, horarios, equipo, reportes, configuración, perfil y scaffold web) |
 | IDE móvil | Android Studio | Instalado en `C:\Program Files\Android\Android Studio` |
 | Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`-`0033` implementadas y validadas |
-| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 40 pasos de integración |
+| Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 47 pasos de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
 | Herramientas internas | `db-validation` (PostgreSQL portátil) e `importar-ceco` (CSV → SQL idempotente) | Implementadas y probadas |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
@@ -68,7 +68,7 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **38 pruebas del importador de CECOs OK, 0 fallos** (`pnpm --dir tools/importar-ceco test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
-- [x] **40 pasos de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
+- [x] **47 pasos de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
 - [x] CI en GitHub Actions: `flutter analyze`, `flutter test`, arnés de PostgreSQL, importador de CECOs y verificaciones de la Edge Function en cada push y PR.
 - [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
 - [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
@@ -89,11 +89,12 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - exige una sesión válida y un perfil **activo** con rol `admin`;
 - toma `empresa_id` del perfil del administrador, nunca del cuerpo;
 - comprueba que el centro destino esté en su subárbol (`ruta`) y en su empresa;
-- invita por correo, escribe `app_metadata` con `service_role` y revierte el usuario si falla la asignación;
+- invita por correo, escribe `app_metadata` con `service_role` y revierte el usuario si falla la asignación con un error confirmado;
 - si GoTrue crea la cuenta pero falla el correo, recorre todas las páginas de `listUsers` (con techo duro y fallo cerrado) y limpia solo la cuenta huérfana del mismo correo creada en los últimos 10 minutos y sin `app_metadata.empresa_id`, sin tocar usuarios con claims;
-- normaliza el correo a NFC y en minúsculas y rechaza caracteres de control.
+- normaliza el correo a NFC y en minúsculas y rechaza caracteres de control;
+- acota cada llamada a Auth/PostgREST con un plazo configurable (`AUTH_TIMEOUT_MS`) y responde `504` sin afirmar reversiones; si escribir `app_metadata` agota el plazo, no borra al usuario porque la escritura pudo haberse aplicado.
 
-El detalle del contrato, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 40 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas y fallo del propio rollback); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
+El detalle del contrato, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
 
 ## Estado del backend — MT-02
 
