@@ -69,7 +69,11 @@ Antes de generar SQL, el plan rechaza:
 - nombres vacíos o de más de 160 caracteres;
 - códigos duplicados en el archivo (aunque cambie el formato);
 - un centro que se declara padre de sí mismo;
-- ciclos en la jerarquía.
+- ciclos en la jerarquía;
+- columnas no reconocidas (o campos sobrantes) con datos, indicando la línea;
+- caracteres de control en el código de empresa, que podrían escapar del
+  comentario `-- Empresa:` del SQL generado. Los comentarios se sanitizan
+  aunque el dato cambie en el futuro.
 
 Si un padre no viene en el CSV, se emite una **advertencia** y el SQL comprueba
 antes de enlazar que ese padre ya exista en la base. Si falta, la transacción se

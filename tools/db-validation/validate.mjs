@@ -387,6 +387,33 @@ eq('anon no tiene escritura en tablas públicas', await scalar(`
     and grantee = 'anon'
     and privilege_type in ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
 `), 0);
+eq('authenticated no tiene UPDATE de tabla en perfiles', await scalar(`
+  select count(*)::int
+  from information_schema.role_table_grants
+  where table_schema = 'public'
+    and table_name = 'perfiles'
+    and grantee = 'authenticated'
+    and privilege_type = 'UPDATE'
+`), 0);
+eq('authenticated no actualiza rol, empresa ni centro desde el cliente', await scalar(`
+  select count(*)::int
+  from information_schema.column_privileges
+  where table_schema = 'public'
+    and table_name = 'perfiles'
+    and grantee = 'authenticated'
+    and privilege_type = 'UPDATE'
+    and column_name in ('rol', 'empresa_id', 'centro_costo_id')
+`), 0);
+eq('índices de incidencias y de jefe presentes', await scalar(`
+  select count(*)::int from pg_indexes
+  where schemaname = 'public'
+    and (
+      (tablename = 'incidencias_jornada'
+       and indexname in ('incidencias_jornada_idx', 'incidencias_empresa_jornada_idx'))
+      or (tablename = 'centros_costo'
+          and indexname = 'centros_costo_empresa_jefe_idx')
+    )
+`), 3);
 eq('toda función SECURITY DEFINER fija search_path', await scalar(`
   select count(*)::int
   from pg_proc p
@@ -2952,6 +2979,41 @@ try {
                where jornada_id = $1 order by tipo::text`, [jornadaNocturna])).rows
       .map((r) => [r.tipo, r.minutos]),
     [['llegada_tarde', 15], ['salida_temprana', 30]]);
+} finally {
+  await q('rollback');
+}
+
+// El cliente cierra enviando solo coordenadas: el trigger BEFORE sella
+// `salida_en`, así que el AFTER debe recalcular aunque esa columna no esté en
+// el SET del UPDATE (la migración 0027 no lo hacía).
+await q('begin');
+try {
+  const idCierreCoords = randomUUID();
+  await q(`
+    insert into public.jornadas (
+      id, empresa_id, empleado_id, parque_id, entrada_en,
+      entrada_lat, entrada_lon, entrada_precision_metros, entrada_dentro_geocerca
+    ) values ($1, $2, $3, $4, ${localHora('09:15')},
+              14.6350, -90.5070, 5, true)
+  `, [idCierreCoords, A.empresa, U.empA, P.child]);
+
+  await q('set local role authenticated');
+  await q(`select set_config('request.jwt.claims', $1, true)`,
+    [JSON.stringify(claims(U.empA, A.empresa, A.child, 'empleado'))]);
+  await q(`
+    update public.jornadas
+       set salida_lat = 14.6350, salida_lon = -90.5070
+     where id = $1
+  `, [idCierreCoords]);
+  await q('reset role');
+
+  ok('cerrar solo con coordenadas sella salida_en',
+    !!(await scalar('select salida_en from public.jornadas where id = $1',
+      [idCierreCoords])));
+  eq('cerrar solo con coordenadas genera incidencias de horario',
+    await scalar(`select count(*) > 0 from public.incidencias_jornada
+                   where jornada_id = $1 and tipo = 'llegada_tarde'`,
+      [idCierreCoords]), true);
 } finally {
   await q('rollback');
 }

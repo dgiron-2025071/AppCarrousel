@@ -87,3 +87,24 @@ test('rechaza comillas sin cerrar', () => {
     /comillas sin cerrar/,
   );
 });
+
+test('rechaza columnas no reconocidas con datos y señala la línea', () => {
+  assert.throws(
+    () => parsearCsv('codigo,nombre,padre,estado\nA,Centro A,,activo\n'),
+    /Línea 2: la columna "estado" no está reconocida y contiene datos/,
+  );
+});
+
+test('rechaza campos sobrantes aunque no tengan encabezado', () => {
+  assert.throws(
+    () => parsearCsv('codigo,nombre\nA,Centro A,dato\n'),
+    /Línea 2: la columna "n.º 3" no está reconocida y contiene datos/,
+  );
+});
+
+test('permite columnas extra siempre que estén vacías', () => {
+  const { filas } = parsearCsv('codigo,nombre,padre,notas\nA,Centro A,,\n');
+
+  assert.equal(filas.length, 1);
+  assert.equal(filas[0].codigo, 'A');
+});
