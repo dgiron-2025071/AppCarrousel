@@ -380,13 +380,77 @@ eq('todas las tablas públicas tienen RLS', await scalar(`
     and c.relkind in ('r', 'p')
     and not c.relrowsecurity
 `), 0);
-eq('anon no tiene escritura en tablas públicas', await scalar(`
+// Estas consultas se comparten con las pruebas negativas: una migration futura
+// que conceda escritura a anon, ejecución de helpers o una vista sin
+// security_invoker debe romper el arnés aunque ninguna prueba funcional la toque.
+const ACL_ANON_ESCRITURA_SQL = `
   select count(*)::int
-  from information_schema.role_table_grants
-  where table_schema = 'public'
-    and grantee = 'anon'
-    and privilege_type in ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
-`), 0);
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relkind in ('r', 'p')
+    and (
+      has_table_privilege('anon', c.oid, 'INSERT')
+      or has_table_privilege('anon', c.oid, 'UPDATE')
+      or has_table_privilege('anon', c.oid, 'DELETE')
+      or has_table_privilege('anon', c.oid, 'TRUNCATE')
+      or has_table_privilege('anon', c.oid, 'REFERENCES')
+      or has_table_privilege('anon', c.oid, 'TRIGGER')
+      or exists (
+        select 1 from pg_attribute a
+        where a.attrelid = c.oid
+          and a.attnum > 0
+          and not a.attisdropped
+          and (
+            has_column_privilege('anon', c.oid, a.attnum, 'INSERT')
+            or has_column_privilege('anon', c.oid, a.attnum, 'UPDATE')
+            or has_column_privilege('anon', c.oid, a.attnum, 'REFERENCES')
+          )
+      )
+    )
+`;
+const ACL_ANON_EJECUCION_SQL = `
+  select count(*)::int
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname in ('public', 'private')
+    and has_function_privilege('anon', p.oid, 'EXECUTE')
+`;
+const VISTAS_SIN_INVOKER_SQL = `
+  select count(*)::int
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relkind = 'v'
+    and not coalesce(c.reloptions, '{}') @> array['security_invoker=true']
+`;
+
+async function detectaRegresion(nombre, cambioSql, consultaSql) {
+  await q('begin');
+  try {
+    await q(cambioSql);
+    ok(nombre, (await scalar(consultaSql)) > 0);
+  } catch (error) {
+    ok(nombre, false, error.message);
+  } finally {
+    await q('rollback');
+  }
+}
+
+eq('anon no tiene escritura en tablas ni columnas públicas',
+  await scalar(ACL_ANON_ESCRITURA_SQL), 0);
+eq('anon no ejecuta funciones de public ni private',
+  await scalar(ACL_ANON_EJECUCION_SQL), 0);
+await detectaRegresion(
+  'el arnés detecta una columna con escritura para anon',
+  'grant update (activo) on public.perfiles to anon',
+  ACL_ANON_ESCRITURA_SQL,
+);
+await detectaRegresion(
+  'el arnés detecta una función ejecutable por anon',
+  'grant execute on function private.sync_token_valido(text) to anon',
+  ACL_ANON_EJECUCION_SQL,
+);
 eq('authenticated no tiene UPDATE de tabla en perfiles', await scalar(`
   select count(*)::int
   from information_schema.role_table_grants
@@ -3141,12 +3205,13 @@ try {
 // -----------------------------------------------------------------------------
 group('Reportes');
 
-eq('las vistas de reporte heredan la RLS del consultante',
-  await scalar(`
-    select count(*)::int from pg_class
-    where relname in ('reporte_horas_extras', 'cumplimiento_jornadas')
-      and coalesce(reloptions, '{}') @> array['security_invoker=true']
-  `), 2);
+eq('todas las vistas públicas heredan la RLS del consultante',
+  await scalar(VISTAS_SIN_INVOKER_SQL), 0);
+await detectaRegresion(
+  'el arnés detecta una vista pública sin security_invoker',
+  'create view public._prueba_invariante_vista as select 1',
+  VISTAS_SIN_INVOKER_SQL,
+);
 
 eq('el empleado solo ve sus horas extras en el reporte',
   await withRole('authenticated', claims(U.empA, A.empresa, A.child, 'empleado'), async () => ({

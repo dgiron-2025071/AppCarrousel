@@ -64,8 +64,8 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **0021** Revalidación al reasignar: cambiar el especialista o la empresa de una solicitud vuelve a exigir un revisor admin activo y distinto del especialista.
 - [x] **0022** Quitar los claims revoca el perfil: si `app_metadata` queda incompleto se desactiva el perfil existente, y restaurar los claims no reactiva una baja.
 - [x] Arnés de validación con PostgreSQL 17.9 portátil y emulación de roles/`auth` de Supabase.
-- [x] **366 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
-- [x] **38 pruebas del importador de CECOs OK, 0 fallos** (`pnpm --dir tools/importar-ceco test`).
+- [x] **370 pruebas automáticas OK, 0 fallos** (`pnpm --dir tools/db-validation test`).
+- [x] **40 pruebas del importador de CECOs OK, 0 fallos** (`pnpm --dir tools/importar-ceco test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **47 pasos de integración de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts`), con un Supabase falso local.
@@ -220,7 +220,7 @@ El arnés vive en `tools/db-validation` y usa `embedded-postgres` para ejecutar 
 pnpm --dir tools/db-validation test
 ```
 
-Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`-`0022` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva, la degradación inmediata de un administrador, el cierre con una geocerca movida o redimensionada durante el turno, la integridad cross-tenant del empleado y del revisor, la revocación inmediata del alcance de un admin movido de subárbol, el rechazo de solicitudes de horas extras solapadas, la firma de la revisión por un administrador activo de la empresa, la revalidación del revisor al reasignar la solicitud y la revocación del perfil al quitar los claims. Las migraciones `0023`-`0033` suman puestos y autorizador jerárquico, horarios con zona horaria y umbral GPS, registro por código de empresa con sincronización del nombre visible, CECOs por lugar, incidencias y ajustes inmutables, reportes con RLS, el puesto declarado por la persona al registrarse, la limpieza del jefe de centro cuando deja de ser admin activo y el recálculo de incidencias al cerrar con solo coordenadas, además de los tokens internos que impiden falsificar el ajuste de jornada o el CECO principal. Además, el arnés falla si una tabla pública nueva no habilita RLS, si `anon` recibe escritura, si `authenticated` recibe `UPDATE` de tabla o de las columnas de rol/empresa/centro en `perfiles`, si faltan los índices de incidencias y jefe, si una función `SECURITY DEFINER` no fija `search_path` o si alguna función de `public`/`private` queda ejecutable por `PUBLIC`/`anon`. Resultado actual: **366 pruebas OK, 0 fallos**.
+Cubre jerarquía dinámica y anti-ciclos, aislamiento por empresa, RLS de perfiles/centros/parques/jornadas/solicitudes, no autoelevación, geocerca con tolerancia GPS, una sola jornada abierta, coherencia de la revisión y prohibición de revisar solicitudes propias o ya revisadas. Las migraciones `0007`-`0022` añaden pruebas para el cierre de jornada con parque desactivado, el marcaje fuera del subárbol, los perfiles inactivos, la precisión GPS negativa, la revocación inmediata de lectura para un admin desactivado, el cierre de una jornada olvidada de más de 24 h, el retiro de solicitudes propias, la retención del historial ante el borrado de cuentas, el corte inmediato de acceso para una empresa inactiva, la degradación inmediata de un administrador, el cierre con una geocerca movida o redimensionada durante el turno, la integridad cross-tenant del empleado y del revisor, la revocación inmediata del alcance de un admin movido de subárbol, el rechazo de solicitudes de horas extras solapadas, la firma de la revisión por un administrador activo de la empresa, la revalidación del revisor al reasignar la solicitud y la revocación del perfil al quitar los claims. Las migraciones `0023`-`0033` suman puestos y autorizador jerárquico, horarios con zona horaria y umbral GPS, registro por código de empresa con sincronización del nombre visible, CECOs por lugar, incidencias y ajustes inmutables, reportes con RLS, el puesto declarado por la persona al registrarse, la limpieza del jefe de centro cuando deja de ser admin activo y el recálculo de incidencias al cerrar con solo coordenadas, además de los tokens internos que impiden falsificar el ajuste de jornada o el CECO principal. Además, el arnés falla si una tabla pública nueva no habilita RLS, si `anon` recibe escritura de tabla o de columna, si `authenticated` recibe `UPDATE` de tabla o de las columnas de rol/empresa/centro en `perfiles`, si faltan los índices de incidencias y jefe, si una función `SECURITY DEFINER` no fija `search_path`, si alguna función de `public`/`private` queda ejecutable por `PUBLIC`/`anon` o si una vista pública no usa `security_invoker`. Pruebas negativas revertidas confirman que esas tres reglas detectan la regresión. Resultado actual: **370 pruebas OK, 0 fallos**.
 
 La app Flutter se valida con `flutter analyze` y **125 pruebas** (`flutter test`) que cubren desde mappers y reglas de dominio hasta widgets de marcaje, formularios, aprobaciones, subárboles, autenticación, perfil, horario del empleado, configuración de empresa, navegación web de `HomeShell`, resumen por zona horaria y un guard de dependencias entre capas. El workflow `.github/workflows/validacion.yml` ejecuta todas estas comprobaciones en cada push y pull request.
 
@@ -230,18 +230,18 @@ El SQL del importador de centros de costo se ejecuta en el mismo PostgreSQL real
 pnpm --dir tools/importar-ceco test
 ```
 
-Cubre normalización de códigos, parser CSV, duplicados, ciclos, padres faltantes y el contrato idempotente del SQL; el arnés de base de datos comprueba además creación, jerarquía, renombrado, repetición sin duplicados y rollback completo. Ver [`tools/importar-ceco/README.md`](tools/importar-ceco/README.md).
+Cubre normalización de códigos, parser CSV, duplicados, ciclos, padres faltantes, opciones repetidas y el contrato idempotente del SQL; el arnés de base de datos comprueba además creación, jerarquía, renombrado, repetición sin duplicados y rollback completo. Ver [`tools/importar-ceco/README.md`](tools/importar-ceco/README.md).
 
 La Edge Function se verifica sin desplegarla:
 
 ```bash
-npx -y deno check supabase/functions/invitar-usuario/index.ts
-npx -y deno lint supabase/functions/invitar-usuario/index.ts
-npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
+npx -y deno check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno lint supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
 npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 ```
 
-Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgREST y ejecutan la función en un puerto libre. Cubren CORS, sesión, perfil, claims del token, validaciones del cuerpo, empresa y subárbol, invitación de empleado/admin, correo duplicado, error de envío y rollback al fallar `app_metadata`. Resultado actual: **31 pruebas OK, 0 fallos**.
+Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgREST y ejecutan la función en un puerto libre. Cubren CORS, sesión, perfil, claims del token, validaciones del cuerpo, empresa y subárbol, invitación de empleado/admin, correo duplicado, error de envío, rollback al fallar `app_metadata`, reconciliación paginada de huérfanas y timeouts con `504`. El mismo Workflow aplica `deno check`, `deno lint` y `deno fmt --check` a la función y a su arnés. Resultado actual: **47 pruebas OK, 0 fallos**.
 
 ## Historial de cambios
 
@@ -329,6 +329,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-23 | Release MT-02 — tokens de sincronización, paginación de invitaciones e importador acotado | `develop` | [#92](https://github.com/dgiron-2025071/AppCarrousel/pull/92) | Mergeado a `main` | 366 DB, 38 importador, 40 pasos Deno, CI |
 | 2026-11-23 | Backend — timeout de Auth y mapeo a `504` | `dgiron-2025071` | [#93](https://github.com/dgiron-2025071/AppCarrousel/pull/93) | Mergeado a `develop` | 366 DB, 38 importador, 47 pasos Deno, CI |
 | 2026-11-23 | Release MT-02 — timeout de Auth y mapeo a `504` | `develop` | [#94](https://github.com/dgiron-2025071/AppCarrousel/pull/94) | Mergeado a `main` | 366 DB, 38 importador, 47 pasos Deno, CI |
+| 2026-11-23 | Backend — invariantes fail-closed, opciones repetidas y CI del arnés | `dgiron-2025071` | [#95](https://github.com/dgiron-2025071/AppCarrousel/pull/95) | Mergeado a `develop` | 370 DB, 40 importador, 47 pasos Deno, CI |
+| 2026-11-23 | Release MT-02 — invariantes fail-closed y herramientas seguras | `develop` | [#96](https://github.com/dgiron-2025071/AppCarrousel/pull/96) | En revisión | 370 DB, 40 importador, 47 pasos Deno, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
@@ -376,9 +378,9 @@ pnpm --dir tools/db-validation test
 pnpm --dir tools/importar-ceco test
 
 # Verificación y pruebas de la Edge Function (Supabase falso, sin credenciales)
-npx -y deno check supabase/functions/invitar-usuario/index.ts
-npx -y deno lint supabase/functions/invitar-usuario/index.ts
-npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
+npx -y deno check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno lint supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
 npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 # Backend con Supabase local (cuando Docker esté disponible)

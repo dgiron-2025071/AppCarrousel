@@ -28,6 +28,11 @@ Sin `--salida`, el SQL se escribe en stdout y los mensajes en stderr.
 | `--max-nodos` | Máximo de filas y nodos del plan (por defecto `5000`). |
 | `--help` | Muestra la ayuda. |
 
+Cada opción solo se acepta una vez: repetir `--empresa`, `--archivo`,
+`--salida`, `--max-bytes`, `--max-nodos` o `--forzar-raices` termina con un
+error explícito y no genera SQL. Así un typo no cambia la empresa destino ni
+relaja un límite de seguridad sin aviso.
+
 Sin `--forzar-raices`, un CSV parcial que omite el padre **no** modifica la
 jerarquía de centros ya existentes. Úsalo solo cuando quieras recolocar raíces
 de forma explícita.
@@ -119,4 +124,4 @@ pnpm --dir tools/importar-ceco test
 
 La suite cubre normalización, parser CSV, decodificación UTF-16 con BOM,
 duplicados, ciclos, padres faltantes, escape de comillas, límites de tamaño y
-nodos y el contrato del SQL idempotente.
+nodos, opciones repetidas y el contrato del SQL idempotente.
