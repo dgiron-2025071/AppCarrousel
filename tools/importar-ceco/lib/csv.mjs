@@ -197,10 +197,23 @@ export function parsearCsv(texto, opciones = {}) {
     );
   }
 
+  const usados = new Set(Object.values(indices));
   const filas = [];
 
   for (const registro of registros.slice(1)) {
     if (registro.campos.every((valor) => String(valor).trim() === '')) continue;
+
+    // Una columna no reconocida con datos suele ser un encabezado con error
+    // tipografico: descartarla en silencio importaria una jerarquia incompleta.
+    for (let indice = 0; indice < registro.campos.length; indice++) {
+      if (usados.has(indice)) continue;
+      if (String(registro.campos[indice] ?? '').trim() !== '') {
+        const nombre = encabezados[indice] || `n.º ${indice + 1}`;
+        throw new Error(
+          `Línea ${registro.linea}: la columna "${nombre}" no está reconocida y contiene datos`,
+        );
+      }
+    }
 
     const valor = (clave) => {
       const indice = indices[clave];

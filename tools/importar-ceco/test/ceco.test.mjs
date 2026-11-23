@@ -152,3 +152,30 @@ test('exige empresa y al menos un centro', () => {
   assert.throws(() => generarSql({ empresa: '', nodos: [{ codigo: 'A' }] }), /Falta el código/);
   assert.throws(() => generarSql({ empresa: 'A', nodos: [] }), /No hay centros de costo/);
 });
+
+test('rechaza caracteres de control en el código de empresa', () => {
+  const nodos = [{ codigo: 'A', nombre: 'Centro A', padre: null }];
+
+  assert.throws(
+    () => generarSql({ empresa: 'EMPRESA-A\ncommit;', nodos }),
+    /contiene caracteres de control/,
+  );
+  assert.throws(
+    () => generarSql({ empresa: 'EMPRESA-A\u0000', nodos }),
+    /contiene caracteres de control/,
+  );
+});
+
+test('un dato con salto de línea no escapa de los comentarios del SQL', () => {
+  const sql = generarSql({
+    empresa: 'EMPRESA-A',
+    nodos: [{ codigo: 'A', nombre: 'Centro A', padre: null }],
+    advertencias: ['Línea 2: padre 100\ncommit;\n-- inyectado'],
+  });
+
+  assert.match(
+    sql,
+    /^-- ADVERTENCIA: Línea 2: padre 100 commit; -- inyectado$/m,
+  );
+  assert.equal((sql.match(/^commit;$/gm) ?? []).length, 1);
+});
