@@ -57,10 +57,12 @@ dejan datos ni privilegios modificados.
 - Estructura: las 12 tablas de negocio, extensión `citext`/`pgcrypto`, RLS en
   todas, al menos una política por tabla y un mínimo de 18 políticas.
 - Invariantes estructurales: toda tabla pública tiene RLS, `anon` no tiene
-  escritura, toda función `SECURITY DEFINER` fija `search_path` vacío y ninguna
-  función de `public`/`private` queda ejecutable por `PUBLIC`/`anon`, para que
-  una migración futura no abra un hueco sin que las pruebas funcionales lo
-  detecten.
+  escritura de tabla ni de columna, toda función `SECURITY DEFINER` fija
+  `search_path` vacío y ninguna función de `public`/`private` queda ejecutable
+  por `PUBLIC`/`anon`, para que una migración futura no abra un hueco sin que
+  las pruebas funcionales lo detecten. Pruebas negativas dentro de una
+  transacción revertida confirman que el arnés detecta cada uno de esos
+  accesos.
 - Jerarquía: cálculo de `ruta`, FK cross-tenant, anti-ciclos, códigos únicos
   por empresa y límite de 32 niveles.
 - Propagación de `ruta` al subárbol al mover un centro.
@@ -180,10 +182,12 @@ dejan datos ni privilegios modificados.
   `auth.users`; además no tiene `UPDATE` de tabla ni permisos de columna para
   `rol`, `empresa_id` o `centro_costo_id` en `perfiles`.
 - Fail-closed: sin claims no hay acceso; `anon` no accede a ninguna tabla ni a
-  las vistas de reporte.
+  las vistas de reporte. Todas las vistas públicas usan `security_invoker=true`
+  para heredar la RLS del consultante, y una vista nueva sin esa opción rompe
+  el arnés.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **366 pruebas OK, 0 FAIL**.
+Resultado actual: **370 pruebas OK, 0 FAIL**.
 
 ## Límites
 

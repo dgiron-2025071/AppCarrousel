@@ -48,11 +48,15 @@ function leerArgumentos(argv) {
     const argumento = argv[i];
 
     if (argumento === '--help' || argumento === '-h') {
+      if (opciones.ayuda) throw new Error(`Opción repetida: ${argumento}`);
       opciones.ayuda = true;
       continue;
     }
 
     if (argumento === '--forzar-raices') {
+      if (opciones.forzarRaices) {
+        throw new Error(`Opción repetida: ${argumento}`);
+      }
       opciones.forzarRaices = true;
       continue;
     }
@@ -62,11 +66,15 @@ function leerArgumentos(argv) {
       argumento === '--salida' || argumento === '--max-bytes' ||
       argumento === '--max-nodos'
     ) {
+      const clave = argumento.slice(2);
+      if (Object.hasOwn(opciones, clave)) {
+        throw new Error(`Opción repetida: ${argumento}`);
+      }
       const valor = argv[i + 1];
       if (!valor || valor.startsWith('--')) {
         throw new Error(`Falta el valor de ${argumento}`);
       }
-      opciones[argumento.slice(2)] = valor;
+      opciones[clave] = valor;
       i++;
       continue;
     }
