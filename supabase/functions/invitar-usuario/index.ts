@@ -94,6 +94,11 @@ function error(mensaje: string, status = 400): Response {
   return json({ error: mensaje }, status);
 }
 
+// GoTrue puede crear el usuario y fallar después al enviar el correo; en ese
+// caso responde sin el id. Solo se considera huérfana una cuenta del mismo
+// correo, creada en los últimos 10 minutos y sin app_metadata.empresa_id.
+const VENTANA_HUERFANO_MS = 10 * 60 * 1000;
+
 const PORT = Number(Deno.env.get("PORT") ?? "8000");
 
 Deno.serve(
@@ -166,6 +171,52 @@ Deno.serve(
     const admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+
+    // Cualquier usuario con claims se deja intacto: solo se limpia la cuenta
+    // huérfana que GoTrue pudo dejar al fallar el envío del correo.
+    const reconciliarInvitacionFallida = async (
+      email: string,
+    ): Promise<"limpio" | "revertido" | "error"> => {
+      try {
+        const ahora = Date.now();
+        for (let pagina = 1; pagina <= 5; pagina++) {
+          const { data, error: listError } = await admin.auth.admin.listUsers({
+            page: pagina,
+            perPage: 100,
+          });
+          if (listError || !data) return "error";
+
+          const huerfano = data.users.find((usuario) => {
+            const creado = Date.parse(usuario.created_at ?? "");
+            return usuario.email?.toLowerCase() === email &&
+              !usuario.app_metadata?.empresa_id &&
+              Number.isFinite(creado) &&
+              ahora - creado >= 0 &&
+              ahora - creado <= VENTANA_HUERFANO_MS;
+          });
+
+          if (huerfano) {
+            const { error: deleteError } = await admin.auth.admin
+              .deleteUser(huerfano.id);
+            if (deleteError) {
+              console.error(
+                "ALERTA: no se pudo limpiar la invitación huérfana de",
+                email,
+                deleteError.message,
+              );
+              return "error";
+            }
+            return "revertido";
+          }
+
+          if (data.users.length < 100) return "limpio";
+        }
+        return "limpio";
+      } catch (error) {
+        console.error("ALERTA: falló la reconciliación de", email, error);
+        return "error";
+      }
+    };
 
     const { data: perfiles, error: perfilError } = await admin
       .from("perfiles")
@@ -249,6 +300,19 @@ Deno.serve(
         texto.includes("already exists")
       ) {
         return error("Ese correo ya tiene una cuenta en Carrousel.", 409);
+      }
+      const reconciliacion = await reconciliarInvitacionFallida(email);
+      if (reconciliacion === "error") {
+        return error(
+          "No se pudo enviar la invitación ni verificar si quedó una cuenta huérfana. Revisa Auth.",
+          500,
+        );
+      }
+      if (reconciliacion === "revertido") {
+        return error(
+          "No se pudo enviar la invitación. Se eliminó la cuenta huérfana; vuelve a intentar.",
+          502,
+        );
       }
       return error(
         "No se pudo enviar la invitación. Revisa la configuración de correo.",
