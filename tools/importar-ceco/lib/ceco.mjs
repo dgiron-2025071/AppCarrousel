@@ -167,9 +167,16 @@ function sanitizarComentario(valor) {
  *
  * Por defecto no desprende centros ya existentes: un CSV parcial que omite el
  * padre no debe borrar la ruta de un centro con jerarquía. `forzarRaices` debe
- * pedirse explícitamente para reescribir esas raíces.
+ * pedirse explícitamente para reescribir esas raíces. `maxNodos` evita generar
+ * un SQL desproporcionado por un CSV corrupto o demasiado grande.
  */
-export function generarSql({ empresa, nodos, advertencias = [], forzarRaices = false }) {
+export function generarSql({
+  empresa,
+  nodos,
+  advertencias = [],
+  forzarRaices = false,
+  maxNodos = 5000,
+}) {
   const codigoEmpresa = String(empresa ?? '').trim();
   if (!codigoEmpresa) {
     throw new Error('Falta el código de empresa');
@@ -179,6 +186,9 @@ export function generarSql({ empresa, nodos, advertencias = [], forzarRaices = f
   }
   if (!Array.isArray(nodos) || nodos.length === 0) {
     throw new Error('No hay centros de costo para importar');
+  }
+  if (nodos.length > maxNodos) {
+    throw new Error(`El plan supera el límite de ${maxNodos} nodos`);
   }
 
   const valoresAltas = nodos

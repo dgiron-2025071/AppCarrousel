@@ -78,6 +78,8 @@ interface EstadoFalso {
   usuarioInvitadoId: string;
   peticiones: PeticionRegistrada[];
   usuariosEliminados: string[];
+  usuariosPorPagina: Record<number, UsuarioFalso[]>;
+  nextPagePorPagina: Record<number, number | null>;
 }
 
 const CUERPO_VALIDO = {
@@ -125,6 +127,8 @@ function estadoInicial(): EstadoFalso {
     usuarioInvitadoId: INVITADO_ID,
     peticiones: [],
     usuariosEliminados: [],
+    usuariosPorPagina: {},
+    nextPagePorPagina: {},
   };
 }
 
@@ -216,7 +220,11 @@ async function manejador(req: Request): Promise<Response> {
     if (estado.usuariosError) {
       return responder({ message: "fallo al listar usuarios" }, 500);
     }
-    return responder({ users: estado.usuarios, aud: "", nextPage: null });
+    const pagina = Number(url.searchParams.get("page") ?? "1");
+    const usuarios = estado.usuariosPorPagina[pagina] ??
+      (pagina === 1 ? estado.usuarios : []);
+    const nextPage = estado.nextPagePorPagina[pagina] ?? null;
+    return responder({ users: usuarios, aud: "", nextPage });
   }
 
   const usuarioAdmin = url.pathname.match(
@@ -409,6 +417,32 @@ function peticion(metodo: string, pathname: string): PeticionRegistrada {
   );
   assert(encontrada, `No se registró ${metodo} ${pathname}`);
   return encontrada;
+}
+
+function paginasConHuerfano(
+  huerfano: UsuarioFalso,
+  totalPaginas = 6,
+): void {
+  const ahora = new Date().toISOString();
+  for (let pagina = 1; pagina < totalPaginas; pagina++) {
+    estado.usuariosPorPagina[pagina] = Array.from({ length: 100 }, (_, i) => ({
+      id: `relleno-${pagina}-${i}`,
+      email: `relleno-${pagina}-${i}@empresa.com`,
+      created_at: ahora,
+      app_metadata: {},
+    }));
+    estado.nextPagePorPagina[pagina] = pagina + 1;
+  }
+  estado.usuariosPorPagina[totalPaginas] = [
+    huerfano,
+    ...Array.from({ length: 99 }, (_, i) => ({
+      id: `relleno-${totalPaginas}-${i}`,
+      email: `relleno-${totalPaginas}-${i}@empresa.com`,
+      created_at: ahora,
+      app_metadata: {},
+    })),
+  ];
+  estado.nextPagePorPagina[totalPaginas] = null;
 }
 
 Deno.test({
@@ -645,6 +679,21 @@ Deno.test({
         });
       });
 
+      await t.step("correo con carácter de control", async () => {
+        estado = estadoInicial();
+        const res = await invocar(funcion.base, {
+          body: { ...CUERPO_VALIDO, email: "nuevo\u0000@empresa.com" },
+        });
+        assertEquals(res.status, 400);
+        assertEquals(res.json, {
+          error: "Escribe un correo electrónico válido.",
+        });
+        assertEquals(
+          estado.peticiones.some((p) => p.pathname === "/auth/v1/invite"),
+          false,
+        );
+      });
+
       await t.step("nombre demasiado corto", async () => {
         estado = estadoInicial();
         const res = await invocar(funcion.base, {
@@ -786,6 +835,20 @@ Deno.test({
         assertEquals(estado.usuariosEliminados, []);
       });
 
+      await t.step("normaliza el correo Unicode a NFC", async () => {
+        estado = estadoInicial();
+        const res = await invocar(funcion.base, {
+          body: { ...CUERPO_VALIDO, email: "n\u0069\u0301ck@empresa.com" },
+        });
+        assertEquals(res.status, 201);
+        assertEquals(res.json?.email, "níck@empresa.com");
+
+        const invitacion = peticion("POST", "/auth/v1/invite");
+        assertEquals(JSON.parse(invitacion.body), {
+          email: "níck@empresa.com",
+        });
+      });
+
       await t.step(
         "invitación exitosa de admin en su propio centro",
         async () => {
@@ -887,6 +950,61 @@ Deno.test({
         estado = estadoInicial();
         estado.invitacionError = { status: 500, message: "smtp no disponible" };
         estado.usuariosError = true;
+        const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 500);
+        assertEquals(res.json, {
+          error:
+            "No se pudo enviar la invitación ni verificar si quedó una cuenta huérfana. Revisa Auth.",
+        });
+        assertEquals(estado.usuariosEliminados, []);
+      });
+
+      await t.step(
+        "busca la cuenta huérfana más allá de la quinta página",
+        async () => {
+          estado = estadoInicial();
+          estado.invitacionError = {
+            status: 500,
+            message: "smtp no disponible",
+          };
+          paginasConHuerfano({
+            id: INVITADO_ID,
+            email: "nuevo@empresa.com",
+            created_at: new Date().toISOString(),
+            app_metadata: {},
+          });
+          const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
+          assertEquals(res.status, 502);
+          assertEquals(res.json, {
+            error:
+              "No se pudo enviar la invitación. Se eliminó la cuenta huérfana; vuelve a intentar.",
+          });
+          assertEquals(estado.usuariosEliminados, [INVITADO_ID]);
+          assertEquals(
+            estado.peticiones.filter((p) =>
+              p.pathname === "/auth/v1/admin/users"
+            ).length,
+            6,
+          );
+        },
+      );
+
+      await t.step("paginación fuera de rango falla cerrado", async () => {
+        estado = estadoInicial();
+        estado.invitacionError = { status: 500, message: "smtp no disponible" };
+        const ahora = new Date().toISOString();
+        for (let pagina = 1; pagina <= 20; pagina++) {
+          estado.usuariosPorPagina[pagina] = Array.from(
+            { length: 100 },
+            (_, i) => ({
+              id: `lleno-${pagina}-${i}`,
+              email: `lleno-${pagina}-${i}@empresa.com`,
+              created_at: ahora,
+              app_metadata: {},
+            }),
+          );
+          estado.nextPagePorPagina[pagina] = pagina + 1;
+        }
         const res = await invocar(funcion.base, { body: CUERPO_VALIDO });
         assertEquals(res.status, 500);
         assertEquals(res.json, {

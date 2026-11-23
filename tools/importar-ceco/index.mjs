@@ -14,8 +14,11 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parsearCsv } from './lib/csv.mjs';
+import { decodificarCsv, parsearCsv } from './lib/csv.mjs';
 import { construirPlan, generarSql } from './lib/ceco.mjs';
+
+const MAX_BYTES_POR_DEFECTO = 10 * 1024 * 1024;
+const MAX_NODOS_POR_DEFECTO = 5000;
 
 const AYUDA = `Importa centros de costo desde CSV.
 
@@ -25,6 +28,8 @@ Opciones:
   --salida <ruta>      Archivo SQL de salida. Sin esta opción usa stdout.
   --forzar-raices      Desprende los centros declarados sin padre. Sin esta
                        opción un CSV parcial no rompe jerarquías existentes.
+  --max-bytes <n>      Tamaño máximo del archivo (por defecto 10485760).
+  --max-nodos <n>      Número máximo de filas/nodos (por defecto 5000).
   --help               Muestra esta ayuda.
 
 Columnas del CSV:
@@ -52,7 +57,11 @@ function leerArgumentos(argv) {
       continue;
     }
 
-    if (argumento === '--empresa' || argumento === '--archivo' || argumento === '--salida') {
+    if (
+      argumento === '--empresa' || argumento === '--archivo' ||
+      argumento === '--salida' || argumento === '--max-bytes' ||
+      argumento === '--max-nodos'
+    ) {
       const valor = argv[i + 1];
       if (!valor || valor.startsWith('--')) {
         throw new Error(`Falta el valor de ${argumento}`);
@@ -68,6 +77,17 @@ function leerArgumentos(argv) {
   return opciones;
 }
 
+function limiteEntero(valor, opcion) {
+  if (!/^\d+$/.test(String(valor ?? ''))) {
+    throw new Error(`${opcion} debe ser un entero positivo`);
+  }
+  const numero = Number(valor);
+  if (!Number.isSafeInteger(numero) || numero < 1) {
+    throw new Error(`${opcion} debe ser un entero positivo`);
+  }
+  return numero;
+}
+
 async function principal() {
   const opciones = leerArgumentos(process.argv.slice(2));
 
@@ -80,15 +100,38 @@ async function principal() {
     throw new Error('Faltan --empresa o --archivo. Usa --help para ver la ayuda.');
   }
 
+  const maxBytes = opciones['max-bytes']
+    ? limiteEntero(opciones['max-bytes'], '--max-bytes')
+    : MAX_BYTES_POR_DEFECTO;
+  const maxNodos = opciones['max-nodos']
+    ? limiteEntero(opciones['max-nodos'], '--max-nodos')
+    : MAX_NODOS_POR_DEFECTO;
+
   const rutaEntrada = resolve(opciones.archivo);
-  const contenido = await readFile(rutaEntrada, 'utf8');
+  const buffer = await readFile(rutaEntrada);
+  if (buffer.length > maxBytes) {
+    throw new Error(
+      `El archivo supera el límite de ${maxBytes} bytes (--max-bytes)`,
+    );
+  }
+  const contenido = decodificarCsv(buffer);
   const { filas } = parsearCsv(contenido);
 
   if (filas.length === 0) {
     throw new Error(`El archivo ${rutaEntrada} no tiene filas de datos`);
   }
+  if (filas.length > maxNodos) {
+    throw new Error(
+      `El CSV supera el límite de ${maxNodos} filas (--max-nodos)`,
+    );
+  }
 
   const { nodos, errores, advertencias } = construirPlan(filas);
+  if (nodos.length > maxNodos) {
+    throw new Error(
+      `El plan supera el límite de ${maxNodos} nodos (--max-nodos)`,
+    );
+  }
 
   if (errores.length > 0) {
     process.stderr.write(`No se generó SQL: ${errores.length} error(es).\n`);
@@ -108,6 +151,7 @@ async function principal() {
     nodos,
     advertencias,
     forzarRaices: opciones.forzarRaices === true,
+    maxNodos,
   });
 
   if (opciones.salida) {
