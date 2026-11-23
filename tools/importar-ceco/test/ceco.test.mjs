@@ -179,3 +179,18 @@ test('un dato con salto de línea no escapa de los comentarios del SQL', () => {
   );
   assert.equal((sql.match(/^commit;$/gm) ?? []).length, 1);
 });
+
+test('generarSql respeta el límite de nodos', () => {
+  const nodos = [
+    { codigo: 'A', nombre: 'Centro A', padre: null },
+    { codigo: 'B', nombre: 'Centro B', padre: null },
+  ];
+
+  assert.throws(
+    () => generarSql({ empresa: 'EMPRESA-A', nodos, maxNodos: 1 }),
+    /supera el límite de 1 nodos/,
+  );
+  assert.doesNotThrow(
+    () => generarSql({ empresa: 'EMPRESA-A', nodos, maxNodos: 2 }),
+  );
+});

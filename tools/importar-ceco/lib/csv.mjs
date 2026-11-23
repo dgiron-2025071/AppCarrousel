@@ -7,6 +7,9 @@
  *
  * Devuelve las filas ya mapeadas a `codigo`, `nombre` y `padre`, conservando la
  * línea física del archivo para que los errores sean accionables.
+ *
+ * `decodificarCsv` convierte el Buffer a texto: respeta BOM UTF-16LE/BE y
+ * rechaza UTF-16 sin BOM con un mensaje claro en vez de devolver basura UTF-8.
  */
 
 const ALIAS = {
@@ -16,6 +19,47 @@ const ALIAS = {
 };
 
 const DELIMITADORES = [',', ';', '\t'];
+
+function intercambiarPares(bytes) {
+  const copia = Buffer.from(bytes);
+  for (let i = 0; i + 1 < copia.length; i += 2) {
+    const temporal = copia[i];
+    copia[i] = copia[i + 1];
+    copia[i + 1] = temporal;
+  }
+  return copia;
+}
+
+/** Decodifica el archivo a UTF-8 antes de pasarlo al parser. */
+export function decodificarCsv(entrada) {
+  const datos = Buffer.isBuffer(entrada)
+    ? entrada
+    : Buffer.from(typeof entrada === 'string' ? entrada : String(entrada ?? ''), 'utf8');
+
+  if (datos.length >= 2 && datos[0] === 0xff && datos[1] === 0xfe) {
+    return datos.subarray(2).toString('utf16le');
+  }
+  if (datos.length >= 2 && datos[0] === 0xfe && datos[1] === 0xff) {
+    return intercambiarPares(datos.subarray(2)).toString('utf16le');
+  }
+
+  // UTF-16 sin BOM deja muchos NULs en los bytes alternos. No se adivina la
+  // endianness: se pide al usuario que guarde el archivo con BOM o en UTF-8.
+  const muestra = datos.subarray(0, Math.min(datos.length, 128));
+  let nulosPares = 0;
+  let nulosImpares = 0;
+  for (let i = 0; i + 1 < muestra.length; i += 2) {
+    if (muestra[i] === 0) nulosPares++;
+    if (muestra[i + 1] === 0) nulosImpares++;
+  }
+  if (nulosPares >= 3 || nulosImpares >= 3) {
+    throw new Error(
+      'El archivo parece UTF-16 sin BOM; guárdalo como UTF-8 o UTF-16 con BOM',
+    );
+  }
+
+  return datos.toString('utf8');
+}
 
 export function normalizarEncabezado(valor) {
   return String(valor ?? '')

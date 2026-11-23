@@ -24,6 +24,8 @@ Sin `--salida`, el SQL se escribe en stdout y los mensajes en stderr.
 | `--archivo` | CSV de entrada (obligatorio). |
 | `--salida` | Archivo SQL de salida (opcional). |
 | `--forzar-raices` | Desprende los centros declarados sin padre (opcional). |
+| `--max-bytes` | Tamaño máximo del archivo en bytes (por defecto `10485760`). |
+| `--max-nodos` | Máximo de filas y nodos del plan (por defecto `5000`). |
 | `--help` | Muestra la ayuda. |
 
 Sin `--forzar-raices`, un CSV parcial que omite el padre **no** modifica la
@@ -44,7 +46,10 @@ codigo,nombre,padre
   `Nombre del centro`, `CECO`, `parent` o `ceco_padre`.
 - Se admite coma, punto y coma o tabulador como delimitador.
 - Se admiten campos entre comillas, comas dentro de comillas, comillas
-  escapadas (`""`), saltos de línea dentro de un campo, BOM de Excel y CRLF.
+  escapadas (`""`), saltos de línea dentro de un campo, BOM UTF-8/UTF-16LE/
+  UTF-16BE y CRLF.
+- UTF-16 sin BOM se rechaza con un mensaje explícito: no se adivina la
+  endianness. Guarda el archivo en UTF-8 o con BOM.
 - Las líneas vacías y las que empiezan con `#` se ignoran.
 
 ## Normalización
@@ -73,7 +78,8 @@ Antes de generar SQL, el plan rechaza:
 - columnas no reconocidas (o campos sobrantes) con datos, indicando la línea;
 - caracteres de control en el código de empresa, que podrían escapar del
   comentario `-- Empresa:` del SQL generado. Los comentarios se sanitizan
-  aunque el dato cambie en el futuro.
+  aunque el dato cambie en el futuro;
+- archivos que superan `--max-bytes` o `--max-nodos`, antes de generar SQL.
 
 Si un padre no viene en el CSV, se emite una **advertencia** y el SQL comprueba
 antes de enlazar que ese padre ya exista en la base. Si falta, la transacción se
@@ -111,5 +117,6 @@ ficticios para probar la herramienta.
 pnpm --dir tools/importar-ceco test
 ```
 
-La suite cubre normalización, parser CSV, duplicados, ciclos, padres faltantes,
-escape de comillas y el contrato del SQL idempotente.
+La suite cubre normalización, parser CSV, decodificación UTF-16 con BOM,
+duplicados, ciclos, padres faltantes, escape de comillas, límites de tamaño y
+nodos y el contrato del SQL idempotente.
