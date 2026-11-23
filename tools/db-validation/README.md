@@ -159,6 +159,11 @@ dejan datos ni privilegios modificados.
   UPDATE ni DELETE) y `ajustar_jornada` exige motivo y rango coherente, rechaza
   jornadas abiertas o de otra empresa, actualiza la jornada y recalcula las
   incidencias.
+- Tokens de sincronización: el ajuste de jornada y el CECO principal ya no se
+  habilitan con GUCs que el cliente pueda fijar. `private.sync_tokens` guarda un
+  token por marca, los helpers `security definer` son los únicos que pueden
+  marcarlo y validarlo, y el arnés comprueba que un UUID falso (y los GUCs
+  heredados) no saltan la geocerca ni desprenden el principal.
 - Reportes: `reporte_horas_extras` y `cumplimiento_jornadas` usan
   `security_invoker = true`; el empleado solo ve lo propio, el admin su subárbol
   y ninguna empresa ve a otra. El cálculo de horas y el cruce con horario e
@@ -178,7 +183,7 @@ dejan datos ni privilegios modificados.
   las vistas de reporte.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **359 pruebas OK, 0 FAIL**.
+Resultado actual: **366 pruebas OK, 0 FAIL**.
 
 ## Límites
 

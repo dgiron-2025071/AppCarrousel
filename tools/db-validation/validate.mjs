@@ -3335,6 +3335,89 @@ eq('--forzar-raices sí desprende el centro',
   `), true);
 
 // -----------------------------------------------------------------------------
+// Tokens de sincronizacion internos
+// -----------------------------------------------------------------------------
+group('Tokens de sincronizacion internos');
+
+const tokenFalso = '00000000-0000-4000-8000-000000000000';
+
+const conMarca = async (guc, valor, reclamos, accion) => {
+  await q('begin');
+  try {
+    await q('set local role authenticated');
+    await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(reclamos)]);
+    await q('select set_config($1, $2, true)', [guc, valor]);
+    await accion();
+    return null;
+  } catch (error) {
+    return error;
+  } finally {
+    await q('rollback');
+  }
+};
+
+const cerrarFueraDeGeocerca = async () => {
+  const id = (await q(`
+    insert into public.jornadas (parque_id, entrada_lat, entrada_lon)
+    values ($1, 14.6350, -90.5070) returning id
+  `, [P.child])).rows[0].id;
+  await q(`
+    update public.jornadas
+       set salida_lat = 14.7000, salida_lon = -90.6000
+     where id = $1
+  `, [id]);
+};
+const borrarPrincipal = async () => {
+  await q(`delete from public.parques_centros where parque_id = $1 and principal`, [P.child]);
+};
+const reclamosAdmin = claims(U.gerRoot, A.empresa, A.root, 'admin');
+
+let errorMarca = await conMarca(
+  'carrousel.sync_ajuste_jornada', tokenFalso, empAClaims,
+  cerrarFueraDeGeocerca,
+);
+ok('un token falso no habilita el ajuste de jornada', errorMarca?.code === '23514',
+  `code=${errorMarca?.code}, msg=${errorMarca?.message}`);
+
+errorMarca = await conMarca(
+  'carrousel.ajuste_jornada', 'on', empAClaims,
+  cerrarFueraDeGeocerca,
+);
+ok('el GUC heredado de ajuste ya no habilita el salto de geocerca',
+  errorMarca?.code === '23514',
+  `code=${errorMarca?.code}, msg=${errorMarca?.message}`);
+
+errorMarca = await conMarca(
+  'carrousel.sync_parques_centros', tokenFalso, reclamosAdmin,
+  borrarPrincipal,
+);
+ok('un token falso no desprende el CECO principal', errorMarca?.code === '23514',
+  `code=${errorMarca?.code}, msg=${errorMarca?.message}`);
+
+errorMarca = await conMarca(
+  'carrousel.parques_centros_sync', 'on', reclamosAdmin,
+  borrarPrincipal,
+);
+ok('el GUC heredado de CECO ya no desprende el principal',
+  errorMarca?.code === '23514',
+  `code=${errorMarca?.code}, msg=${errorMarca?.message}`);
+
+eq('el cliente no puede ejecutar los helpers de sincronizacion',
+  await scalar(`
+    select count(*)::int
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'private'
+      and p.proname in ('sync_marcar', 'sync_desmarcar', 'sync_token_valido')
+      and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+  `), 0);
+eq('la tabla de tokens no es legible por authenticated',
+  await scalar(`select has_table_privilege('authenticated', 'private.sync_tokens', 'SELECT')`),
+  false);
+eq('los tokens de sincronizacion son distintos',
+  await scalar(`select count(distinct token) = 2 from private.sync_tokens`), true);
+
+// -----------------------------------------------------------------------------
 // Sin claims y anon
 // -----------------------------------------------------------------------------
 group('Fail-closed y anon');

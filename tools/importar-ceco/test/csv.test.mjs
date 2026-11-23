@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsearCsv, normalizarEncabezado } from '../lib/csv.mjs';
+import { decodificarCsv, parsearCsv, normalizarEncabezado } from '../lib/csv.mjs';
 
 test('normaliza encabezados con acentos y espacios', () => {
   assert.equal(normalizarEncabezado('Código'), 'codigo');
@@ -107,4 +107,33 @@ test('permite columnas extra siempre que estén vacías', () => {
 
   assert.equal(filas.length, 1);
   assert.equal(filas[0].codigo, 'A');
+});
+
+test('decodifica un CSV con BOM UTF-16LE', () => {
+  const texto = 'codigo,nombre,padre\nA,Centro A,\n';
+  const archivo = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(texto, 'utf16le'),
+  ]);
+
+  assert.equal(decodificarCsv(archivo), texto);
+});
+
+test('decodifica un CSV con BOM UTF-16BE', () => {
+  const texto = 'codigo,nombre,padre\nA,Centro A,\n';
+  const intercambiado = Buffer.from(Buffer.from(texto, 'utf16le'));
+  for (let i = 0; i + 1 < intercambiado.length; i += 2) {
+    const temporal = intercambiado[i];
+    intercambiado[i] = intercambiado[i + 1];
+    intercambiado[i + 1] = temporal;
+  }
+  const archivo = Buffer.concat([Buffer.from([0xfe, 0xff]), intercambiado]);
+
+  assert.equal(decodificarCsv(archivo), texto);
+});
+
+test('rechaza UTF-16 sin BOM con un mensaje claro', () => {
+  const archivo = Buffer.from('codigo,nombre,padre\nA,Centro A,\n', 'utf16le');
+
+  assert.throws(() => decodificarCsv(archivo), /UTF-16 sin BOM/);
 });

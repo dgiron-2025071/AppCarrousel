@@ -60,6 +60,24 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+function normalizarEmail(valor: unknown): string {
+  if (typeof valor !== "string") return "";
+  // NFC evita que dos representaciones Unicode del mismo correo creen cuentas
+  // distintas.
+  return valor.trim().normalize("NFC").toLowerCase().normalize("NFC");
+}
+
+// Los caracteres de control (C0 y DEL) no son validos en un correo y pueden
+// confundir a GoTrue o a los logs. Se comprueban aparte para no esconderlos en
+// una expresion regular.
+function tieneCaracterDeControl(valor: string): boolean {
+  for (const caracter of valor) {
+    const codigo = caracter.charCodeAt(0);
+    if (codigo <= 0x1f || codigo === 0x7f) return true;
+  }
+  return false;
+}
+
 // Lee el payload del access token. La firma ya la validó la plataforma
 // (`verify_jwt`) y `auth.getUser()` confirma que la sesión sigue vigente, así
 // que aquí solo se decodifica para comparar los claims *emitidos*. No se usa
@@ -98,6 +116,12 @@ function error(mensaje: string, status = 400): Response {
 // caso responde sin el id. Solo se considera huérfana una cuenta del mismo
 // correo, creada en los últimos 10 minutos y sin app_metadata.empresa_id.
 const VENTANA_HUERFANO_MS = 10 * 60 * 1000;
+
+// `listUsers` admite paginacion: recorremos `nextPage` hasta agotarla. El
+// techo evita un bucle infinito si Auth devuelve punteros repetidos; al
+// alcanzarlo se falla cerrado en vez de afirmar que no habia huérfana.
+const USUARIOS_POR_PAGINA = 100;
+const MAX_PAGINAS_USUARIOS = 20;
 
 const PORT = Number(Deno.env.get("PORT") ?? "8000");
 
@@ -144,9 +168,7 @@ Deno.serve(
       return error("El cuerpo debe ser JSON válido.");
     }
 
-    const email = typeof cuerpo.email === "string"
-      ? cuerpo.email.trim().toLowerCase()
-      : "";
+    const email = normalizarEmail(cuerpo.email);
     const nombre = typeof cuerpo.nombre_completo === "string"
       ? cuerpo.nombre_completo.trim()
       : "";
@@ -155,7 +177,9 @@ Deno.serve(
       ? cuerpo.centro_costo_id.trim()
       : "";
 
-    if (!EMAIL.test(email) || email.length > 320) {
+    if (
+      !EMAIL.test(email) || email.length > 320 || tieneCaracterDeControl(email)
+    ) {
       return error("Escribe un correo electrónico válido.");
     }
     if (nombre.length < 2 || nombre.length > 120) {
@@ -179,14 +203,25 @@ Deno.serve(
     ): Promise<"limpio" | "revertido" | "error"> => {
       try {
         const ahora = Date.now();
-        for (let pagina = 1; pagina <= 5; pagina++) {
+        let pagina = 1;
+
+        while (true) {
+          if (pagina > MAX_PAGINAS_USUARIOS) {
+            console.error(
+              "ALERTA: se agotó el techo de páginas al buscar la huérfana de",
+              email,
+            );
+            return "error";
+          }
+
           const { data, error: listError } = await admin.auth.admin.listUsers({
             page: pagina,
-            perPage: 100,
+            perPage: USUARIOS_POR_PAGINA,
           });
           if (listError || !data) return "error";
 
-          const huerfano = data.users.find((usuario) => {
+          const usuarios = Array.isArray(data.users) ? data.users : [];
+          const huerfano = usuarios.find((usuario) => {
             const creado = Date.parse(usuario.created_at ?? "");
             return usuario.email?.toLowerCase() === email &&
               !usuario.app_metadata?.empresa_id &&
@@ -209,9 +244,23 @@ Deno.serve(
             return "revertido";
           }
 
-          if (data.users.length < 100) return "limpio";
+          const siguiente = (data as { nextPage?: number | null }).nextPage;
+          if (typeof siguiente === "number") {
+            if (siguiente <= pagina || siguiente > MAX_PAGINAS_USUARIOS) {
+              console.error(
+                "ALERTA: paginación de Auth inconsistente para",
+                email,
+                `pagina=${pagina} siguiente=${siguiente}`,
+              );
+              return "error";
+            }
+            pagina = siguiente;
+            continue;
+          }
+
+          if (usuarios.length < USUARIOS_POR_PAGINA) return "limpio";
+          pagina += 1;
         }
-        return "limpio";
       } catch (error) {
         console.error("ALERTA: falló la reconciliación de", email, error);
         return "error";
