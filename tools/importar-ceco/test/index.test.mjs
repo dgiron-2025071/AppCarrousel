@@ -44,3 +44,44 @@ test('la CLI rechaza CSVs que superan --max-nodos', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('la CLI rechaza --empresa repetido', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ceco-empresa-duplicada-'));
+  try {
+    writeFileSync(join(dir, 'centros.csv'), csv, 'utf8');
+    const resultado = spawnSync(process.execPath, [
+      indice,
+      '--empresa', 'EMPRESA-A',
+      '--empresa', 'EMPRESA-B',
+      '--archivo', join(dir, 'centros.csv'),
+    ], { encoding: 'utf8' });
+
+    assert.equal(resultado.status, 1);
+    assert.match(resultado.stderr, /Opción repetida: --empresa/);
+    assert.equal(resultado.stdout, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('la CLI rechaza banderas y límites repetidos', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ceco-opciones-duplicadas-'));
+  try {
+    writeFileSync(join(dir, 'centros.csv'), csv, 'utf8');
+    const base = ['--empresa', 'EMPRESA-A', '--archivo', join(dir, 'centros.csv')];
+    for (const [opcion, mensaje] of [
+      [['--forzar-raices', '--forzar-raices'], '--forzar-raices'],
+      [['--max-bytes', '1000', '--max-bytes', '2000'], '--max-bytes'],
+    ]) {
+      const resultado = spawnSync(process.execPath, [
+        indice, ...base, ...opcion,
+      ], { encoding: 'utf8' });
+
+      assert.equal(resultado.status, 1);
+      assert.match(resultado.stderr, new RegExp(`Opción repetida: ${mensaje}`));
+      assert.equal(resultado.stdout, '');
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
