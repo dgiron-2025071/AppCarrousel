@@ -80,6 +80,7 @@ interface EstadoFalso {
   usuariosEliminados: string[];
   usuariosPorPagina: Record<number, UsuarioFalso[]>;
   nextPagePorPagina: Record<number, number | null>;
+  retrasos: Record<string, number>;
 }
 
 const CUERPO_VALIDO = {
@@ -129,6 +130,7 @@ function estadoInicial(): EstadoFalso {
     usuariosEliminados: [],
     usuariosPorPagina: {},
     nextPagePorPagina: {},
+    retrasos: {},
   };
 }
 
@@ -138,6 +140,22 @@ function responder(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+// Retraso por "METODO /ruta" para simular una dependencia colgada. Se corta en
+// cuanto el cliente aborta, asi el apagado del servidor falso no espera de mas.
+async function aplicarRetraso(req: Request, url: URL): Promise<void> {
+  const retraso = estado.retrasos[`${req.method} ${url.pathname}`] ?? 0;
+  if (retraso <= 0) return;
+  await new Promise<void>((resolver) => {
+    const temporizador = setTimeout(resolver, retraso);
+    const cortar = () => {
+      clearTimeout(temporizador);
+      resolver();
+    };
+    if (req.signal.aborted) cortar();
+    else req.signal.addEventListener("abort", cortar, { once: true });
   });
 }
 
@@ -170,6 +188,7 @@ async function manejador(req: Request): Promise<Response> {
     search: url.search,
     body,
   });
+  await aplicarRetraso(req, url);
 
   if (url.pathname === "/auth/v1/user") {
     if (!estado.sesionValida) {
@@ -313,7 +332,10 @@ interface Funcion {
   detener: () => Promise<void>;
 }
 
-async function iniciarFuncion(supabaseUrl: string): Promise<Funcion> {
+async function iniciarFuncion(
+  supabaseUrl: string,
+  envExtra: Record<string, string> = {},
+): Promise<Funcion> {
   const port = puertoLibre();
   const proceso = new Deno.Command(Deno.execPath(), {
     args: ["run", "--allow-all", "--no-check", rutaFuncion()],
@@ -323,6 +345,7 @@ async function iniciarFuncion(supabaseUrl: string): Promise<Funcion> {
       SUPABASE_ANON_KEY: "anon-key",
       APP_REDIRECT_URL: REDIRECT,
       PORT: String(port),
+      ...envExtra,
     },
     stdout: "piped",
     stderr: "piped",
@@ -452,6 +475,11 @@ Deno.test({
   async fn(t) {
     const falso = await iniciarFalso();
     const funcion = await iniciarFuncion(falso.url);
+    // Instancia con un timeout corto para simular dependencias colgadas sin
+    // alterar el comportamiento del resto de los escenarios.
+    const funcionTimeout = await iniciarFuncion(falso.url, {
+      AUTH_TIMEOUT_MS: "300",
+    });
     try {
       await t.step("CORS preflight sin sesión", async () => {
         estado = estadoInicial();
@@ -1044,6 +1072,127 @@ Deno.test({
         },
       );
 
+      await t.step("timeout al verificar la sesión responde 504", async () => {
+        estado = estadoInicial();
+        estado.retrasos["GET /auth/v1/user"] = 1200;
+        const res = await invocar(funcionTimeout.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 504);
+        assertEquals(res.json, {
+          error: "Auth no respondió al verificar la sesión. Intenta de nuevo.",
+        });
+        assertEquals(
+          estado.peticiones.some((p) => p.pathname === "/auth/v1/invite"),
+          false,
+        );
+      });
+
+      await t.step("timeout al consultar el perfil responde 504", async () => {
+        estado = estadoInicial();
+        estado.retrasos["GET /rest/v1/perfiles"] = 1200;
+        const res = await invocar(funcionTimeout.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 504);
+        assertEquals(res.json, {
+          error: "La base de datos no respondió al leer el perfil.",
+        });
+        // Un timeout se propaga como aborto: postgrest-js no debe reintentarlo
+        // con backoff, o un plazo de 300 ms se convertiria en ocho segundos.
+        assertEquals(
+          estado.peticiones.filter((p) => p.pathname === "/rest/v1/perfiles")
+            .length,
+          1,
+        );
+      });
+
+      await t.step(
+        "timeout al invitar no afirma que se creó la cuenta",
+        async () => {
+          estado = estadoInicial();
+          estado.retrasos["POST /auth/v1/invite"] = 1200;
+          const res = await invocar(funcionTimeout.base, {
+            body: CUERPO_VALIDO,
+          });
+          assertEquals(res.status, 504);
+          assertEquals(res.json, {
+            error:
+              "Auth no respondió al enviar la invitación; no se confirmó si se creó la cuenta. Revisa Auth antes de reintentar.",
+          });
+          assertEquals(estado.usuariosEliminados, []);
+        },
+      );
+
+      await t.step(
+        "timeout al invitar limpia la huérfana si la encuentra",
+        async () => {
+          estado = estadoInicial();
+          estado.retrasos["POST /auth/v1/invite"] = 1200;
+          estado.usuarios = [{
+            id: INVITADO_ID,
+            email: "nuevo@empresa.com",
+            created_at: new Date().toISOString(),
+            app_metadata: {},
+          }];
+          const res = await invocar(funcionTimeout.base, {
+            body: CUERPO_VALIDO,
+          });
+          assertEquals(res.status, 502);
+          assertEquals(estado.usuariosEliminados, [INVITADO_ID]);
+        },
+      );
+
+      await t.step(
+        "timeout al listar huérfanas no afirma limpieza",
+        async () => {
+          estado = estadoInicial();
+          estado.retrasos["GET /auth/v1/admin/users"] = 1200;
+          estado.invitacionError = {
+            status: 500,
+            message: "smtp no disponible",
+          };
+          const res = await invocar(funcionTimeout.base, {
+            body: CUERPO_VALIDO,
+          });
+          assertEquals(res.status, 504);
+          assertEquals(res.json, {
+            error:
+              "Auth no respondió al buscar una cuenta huérfana. Revisa Auth antes de reintentar.",
+          });
+          assertEquals(estado.usuariosEliminados, []);
+        },
+      );
+
+      await t.step(
+        "timeout al escribir claims no borra al usuario",
+        async () => {
+          estado = estadoInicial();
+          estado.retrasos[`PUT /auth/v1/admin/users/${INVITADO_ID}`] = 1200;
+          const res = await invocar(funcionTimeout.base, {
+            body: CUERPO_VALIDO,
+          });
+          assertEquals(res.status, 504);
+          assertEquals(res.json, {
+            error:
+              "No se pudo confirmar la asignación de alcance. Revisa el usuario en Auth antes de reintentar.",
+          });
+          assertEquals(estado.usuariosEliminados, []);
+          assertEquals(
+            estado.peticiones.some((p) => p.method === "DELETE"),
+            false,
+          );
+        },
+      );
+
+      await t.step("timeout al revertir no promete reversión", async () => {
+        estado = estadoInicial();
+        estado.claimsError = true;
+        estado.retrasos[`DELETE /auth/v1/admin/users/${INVITADO_ID}`] = 1200;
+        const res = await invocar(funcionTimeout.base, { body: CUERPO_VALIDO });
+        assertEquals(res.status, 504);
+        assertEquals(res.json, {
+          error:
+            "No se pudo asignar el alcance ni revertir la invitación. Revisa el usuario creado en Auth.",
+        });
+      });
+
       await t.step(
         "acepta espacios en el rol y el centro de costo",
         async () => {
@@ -1062,6 +1211,7 @@ Deno.test({
       );
     } finally {
       await funcion.detener();
+      await funcionTimeout.detener();
       await falso.detener();
     }
   },

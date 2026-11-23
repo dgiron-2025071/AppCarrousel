@@ -24,8 +24,14 @@ Crea un usuario en Supabase Auth mediante invitación por correo y escribe en
 - El centro destino debe pertenecer a la empresa del admin y estar en su
   subárbol jerárquico (`ruta` del centro). El `empresa_id` lo determina la
   función a partir del perfil del solicitante, no el cuerpo de la petición.
-- Si falla la escritura de `app_metadata`, el usuario recién invitado se borra
-  para no dejar una cuenta sin alcance.
+- Si falla la escritura de `app_metadata` con un error confirmado, el usuario
+  recién invitado se borra para no dejar una cuenta sin alcance. Si la llamada
+  **agotó el timeout**, no se borra: la escritura pudo haberse aplicado y se
+  pide revisión manual (`504`).
+- Cada llamada a Auth/PostgREST tiene un plazo de 10 s (`AUTH_TIMEOUT_MS`,
+  50–60000 ms, valor por defecto 10000). Un agotamiento responde `504`, nunca
+  `401` ni una reversión afirmada. El timeout se propaga como aborto para que
+  `postgrest-js` no lo reintente con backoff.
 - No se usa `user_metadata` para autorización.
 
 ### Cuerpo de la petición
@@ -59,7 +65,8 @@ proyecto, despliega `invitar-usuario` con verificación de JWT activada y escrib
 El redirect debe estar autorizado en `Authentication > URL Configuration`.
 La función usa `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y
 `SUPABASE_ANON_KEY`, que Supabase inyecta automáticamente en el entorno de la
-función.
+función. `AUTH_TIMEOUT_MS` es opcional (10000 por defecto); para cambiarlo en
+producción, añádelo con `supabase secrets set AUTH_TIMEOUT_MS=10000`.
 
 ### Invocación
 
@@ -110,7 +117,8 @@ npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 El arnés levanta un servidor HTTP que emula los endpoints de Supabase Auth y
 PostgREST usados por la función, arranca `invitar-usuario` como subproceso en un
-puerto libre (`PORT`) y verifica **40 escenarios**:
+puerto libre (`PORT`) y verifica **47 escenarios**, con una segunda instancia en
+`AUTH_TIMEOUT_MS=300` para las pruebas de plazo agotado:
 
 - CORS, método distinto de `POST` y ausencia o invalidez de la sesión.
 - Perfil inexistente, inactivo, con rol distinto de `admin` o con error de
@@ -134,11 +142,15 @@ puerto libre (`PORT`) y verifica **40 escenarios**:
   afirmar que no había huérfana. Solo se borra la cuenta del mismo correo,
   creada en los últimos 10 minutos y sin `app_metadata.empresa_id`; un usuario
   con claims nunca se toca. Si falla el listado, la paginación o el borrado,
-  responde `500` con un mensaje distinto y registra una alerta, sin afirmar que
-  se limpió nada.
+  responde `500` (o `504` si agotó el plazo) con un mensaje distinto y registra
+  una alerta, sin afirmar que se limpió nada.
 - Error al escribir `app_metadata`: responde `500` y borra el usuario invitado
   (rollback verificado). Si el borrado también falla, responde `500` con un
   mensaje distinto y registra una alerta, sin afirmar que se revirtió.
+- Timeouts (`504`): sesión, perfil, invitación, búsqueda de huérfanas, escritura
+  de `app_metadata` y reversión. Un timeout al escribir claims **no** borra al
+  usuario, porque la escritura pudo haberse aplicado; se pide revisar Auth. El
+  arnés verifica que un timeout no se reintenta con backoff (una sola petición).
 - Acepta espacios circundantes en `rol` y `centro_costo_id`.
 
 Las consultas de perfil y centro usan `.limit(1)` en lugar de `.maybeSingle()`
