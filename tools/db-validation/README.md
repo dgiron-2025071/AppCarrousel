@@ -63,6 +63,12 @@ dejan datos ni privilegios modificados.
   las pruebas funcionales lo detecten. Pruebas negativas dentro de una
   transacción revertida confirman que el arnés detecta cada uno de esos
   accesos.
+- Índices de RLS y reportes: el arnés comprueba en `pg_indexes` la definición
+  de los índices de `perfiles`, `centros_costo`, `parques`, `parques_centros`,
+  `jornadas`, `solicitudes_horas_extras`, `registros_pendientes`,
+  `incidencias_jornada`, `jornadas_ajustes`, `horarios` y `puestos`, y en
+  `pg_constraint` la restricción de exclusión `solicitudes_sin_solape`. Una
+  migración que elimine, renombre o reordene esos índices rompe la suite.
 - Jerarquía: cálculo de `ruta`, FK cross-tenant, anti-ciclos, códigos únicos
   por empresa y límite de 32 niveles.
 - Propagación de `ruta` al subárbol al mover un centro.
@@ -187,7 +193,7 @@ dejan datos ni privilegios modificados.
   el arnés.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **370 pruebas OK, 0 FAIL**.
+Resultado actual: **379 pruebas OK, 0 FAIL**.
 
 ## Límites
 
