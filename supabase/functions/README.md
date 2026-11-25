@@ -7,6 +7,26 @@ Crea un usuario en Supabase Auth mediante invitación por correo y escribe en
 (`empleado` o `admin`). El trigger `on_auth_user_sync_perfil` materializa
 `public.perfiles`; el cliente nunca escribe esos claims.
 
+### Estructura por capas
+
+El código está dividido en módulos con una sola responsabilidad; `index.ts` solo
+es el adaptador HTTP:
+
+| Módulo | Capa |
+|---|---|
+| `index.ts` | HTTP: CORS, método, JSON y arranque del servidor. |
+| `config.ts` | Entorno, redirect y límites de timeout/paginación. |
+| `respuestas.ts` | Respuestas JSON y traducción de fallos no controlados. |
+| `validacion.ts` | Normalización del cuerpo y decodificación de claims. |
+| `clientes.ts` | Clientes de Supabase con `fetch` acotado por timeout. |
+| `autorizacion.ts` | Sesión, perfil, empresa y subárbol autorizado. |
+| `reconciliacion.ts` | Limpieza de cuentas huérfanas y paginación. |
+| `servicio.ts` | Orquestación de invitación, claims y rollback. |
+| `tipos.ts` | Contratos compartidos entre capas. |
+
+Las reglas de negocio viven en `autorizacion.ts` y `servicio.ts`; ninguna capa
+inferior conoce el transporte HTTP.
+
 ### Reglas de seguridad
 
 - La función se despliega con verificación de JWT activada (`verify_jwt`).
@@ -104,9 +124,9 @@ Respuesta `201`:
 Verificación estática:
 
 ```bash
-npx -y deno check supabase/functions/invitar-usuario/index.ts
-npx -y deno lint supabase/functions/invitar-usuario/index.ts
-npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts
+npx -y deno check supabase/functions/invitar-usuario/*.ts
+npx -y deno lint supabase/functions/invitar-usuario/*.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/*.ts
 ```
 
 Pruebas de integración (no requieren credenciales ni Docker):
