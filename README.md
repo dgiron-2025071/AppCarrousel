@@ -94,7 +94,7 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - normaliza el correo a NFC y en minúsculas y rechaza caracteres de control;
 - acota cada llamada a Auth/PostgREST con un plazo configurable (`AUTH_TIMEOUT_MS`) y responde `504` sin afirmar reversiones; si escribir `app_metadata` agota el plazo, no borra al usuario porque la escritura pudo haberse aplicado.
 
-El detalle del contrato, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
+El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check` y 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
 
 ## Estado del backend — MT-02
 
@@ -235,9 +235,9 @@ Cubre normalización de códigos, parser CSV, duplicados, ciclos, padres faltant
 La Edge Function se verifica sin desplegarla:
 
 ```bash
-npx -y deno check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
-npx -y deno lint supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
-npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno lint supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
 npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 ```
 
@@ -378,9 +378,9 @@ pnpm --dir tools/db-validation test
 pnpm --dir tools/importar-ceco test
 
 # Verificación y pruebas de la Edge Function (Supabase falso, sin credenciales)
-npx -y deno check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
-npx -y deno lint supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
-npx -y deno fmt --check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno lint supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
 npx -y deno test -A supabase/functions/tests/invitar_usuario_test.ts
 
 # Backend con Supabase local (cuando Docker esté disponible)
