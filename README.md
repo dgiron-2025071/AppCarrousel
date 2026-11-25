@@ -98,7 +98,7 @@ El detalle del contrato, la estructura por capas, los comandos de despliegue y e
 
 ## Estado del backend — MT-02
 
-> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#104](https://github.com/dgiron-2025071/AppCarrousel/pull/104) del 2026-11-25. Las migraciones `0023`-`0033` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
+> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#106](https://github.com/dgiron-2025071/AppCarrousel/pull/106) del 2026-11-25. Las migraciones `0023`-`0033` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
 
 - [x] **0023** `puestos` por empresa y `perfiles.puesto_id` materializado desde `app_metadata.puesto_id`. `centros_costo.jefe_id` designa al administrador responsable; `private.jefe_de_centro()` sube por `ruta` al jefe más cercano y `private.es_autorizador()` resuelve la cadena. El jefe debe ser un admin activo de la misma empresa, así que la firma de revisión de `0019`-`0021` sigue siendo válida.
 - [x] **0024** Horario semanal por empleado y día ISO (`horarios`), zona horaria IANA y umbral de precisión GPS por empresa, con `private.fecha_local()` y `private.horario_del_dia()` para calcular llegadas y salidas.
@@ -339,7 +339,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-24 | Release MT-02 — pruebas unitarias de autorización y servicio | `develop` | [#102](https://github.com/dgiron-2025071/AppCarrousel/pull/102) | Mergeado a `main` | 370 DB, 40 importador, 47 pasos + 29 unitarias Deno, CI |
 | 2026-11-25 | Backend — invariantes de índices para RLS y reportes | `dgiron-2025071` | [#103](https://github.com/dgiron-2025071/AppCarrousel/pull/103) | Mergeado a `develop` | 379 DB, 40 importador, 47 pasos + 29 unitarias Deno, CI |
 | 2026-11-25 | Release MT-02 — invariantes de índices para RLS y reportes | `develop` | [#104](https://github.com/dgiron-2025071/AppCarrousel/pull/104) | Mergeado a `main` | 379 DB, 40 importador, 47 pasos + 29 unitarias Deno, CI |
-| 2026-11-25 | Backend — pruebas unitarias de la configuración | `dgiron-2025071` | [#105](https://github.com/dgiron-2025071/AppCarrousel/pull/105) | En revisión | 379 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
+| 2026-11-25 | Backend — pruebas unitarias de la configuración | `dgiron-2025071` | [#105](https://github.com/dgiron-2025071/AppCarrousel/pull/105) | Mergeado a `develop` | 379 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
+| 2026-11-25 | Release MT-02 — pruebas de configuración | `develop` | [#106](https://github.com/dgiron-2025071/AppCarrousel/pull/106) | Mergeado a `main` | 379 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
