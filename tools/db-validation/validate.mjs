@@ -114,6 +114,31 @@ function group(name) {
   console.log(`\n== ${name} ==`);
 }
 
+async function defIndice(nombre) {
+  const r = await q(
+    `select indexdef from pg_indexes where schemaname = 'public' and indexname = $1`,
+    [nombre],
+  );
+  return r.rows[0]?.indexdef ?? null;
+}
+
+async function eqIndices(nombre, esperados) {
+  const faltas = [];
+  for (const [indice, fragmentos] of Object.entries(esperados)) {
+    const def = await defIndice(indice);
+    if (!def) {
+      faltas.push(`${indice}: ausente`);
+      continue;
+    }
+    for (const fragmento of fragmentos) {
+      if (!def.includes(fragmento)) {
+        faltas.push(`${indice}: falta "${fragmento}"`);
+      }
+    }
+  }
+  ok(nombre, faltas.length === 0, faltas.join('; '));
+}
+
 async function applyFile(label, file) {
   process.stdout.write(`- ${label} ... `);
   try {
@@ -3481,6 +3506,116 @@ eq('la tabla de tokens no es legible por authenticated',
   false);
 eq('los tokens de sincronizacion son distintos',
   await scalar(`select count(distinct token) = 2 from private.sync_tokens`), true);
+
+// -----------------------------------------------------------------------------
+// Índices que sostienen RLS, reportes e integridad
+// -----------------------------------------------------------------------------
+group('Índices de RLS y reportes');
+
+await eqIndices('índices de perfiles para RLS y FK de puesto', {
+  perfiles_empresa_centro_idx: ['USING btree (empresa_id, centro_costo_id)'],
+  perfiles_empresa_puesto_idx: ['USING btree (empresa_id, puesto_id)'],
+});
+
+await eqIndices('índices de centros_costo para alcance, FK y jefe', {
+  centros_costo_empresa_padre_idx: ['USING btree (empresa_id, padre_id)'],
+  centros_costo_ruta_idx: ['USING gin (ruta)'],
+  centros_costo_empresa_jefe_idx: ['USING btree (empresa_id, jefe_id)'],
+});
+
+await eqIndices('índices de parques y CECO por lugar', {
+  parques_empresa_centro_idx: ['USING btree (empresa_id, centro_costo_id)'],
+  parques_centros_empresa_centro_idx: ['USING btree (empresa_id, centro_costo_id)'],
+  parques_centros_empresa_parque_activo_idx: [
+    'USING btree (empresa_id, parque_id, activo)',
+  ],
+  parques_centros_un_principal: [
+    'CREATE UNIQUE INDEX',
+    'USING btree (parque_id)',
+    'WHERE principal',
+  ],
+});
+
+await eqIndices('índices de jornadas por empleado, parque y apertura', {
+  jornadas_empresa_empleado_idx: [
+    'USING btree (empresa_id, empleado_id, entrada_en DESC)',
+  ],
+  jornadas_empresa_parque_idx: [
+    'USING btree (empresa_id, parque_id, entrada_en DESC)',
+  ],
+  jornadas_una_abierta_por_empleado: [
+    'CREATE UNIQUE INDEX',
+    'USING btree (empleado_id)',
+    'WHERE (salida_en IS NULL)',
+  ],
+});
+
+await eqIndices('índices de solicitudes para reportes, revisor y lugar', {
+  solicitudes_empresa_empleado_idx: [
+    'USING btree (empresa_id, empleado_id, creado_en DESC)',
+  ],
+  solicitudes_empresa_estado_idx: [
+    'USING btree (empresa_id, estado, creado_en DESC)',
+  ],
+  solicitudes_empresa_centro_idx: [
+    'USING btree (empresa_id, centro_costo_id)',
+  ],
+  solicitudes_revisor_idx: ['USING btree (empresa_id, revisado_por)'],
+  solicitudes_empresa_parque_idx: ['USING btree (empresa_id, parque_id)'],
+});
+
+await eqIndices('índices de registros pendientes por bandeja y usuario', {
+  registros_empresa_estado_idx: [
+    'USING btree (empresa_id, estado, creado_en DESC)',
+  ],
+  registros_usuario_idx: ['USING btree (usuario_id)'],
+  registros_un_pendiente_por_usuario: [
+    'CREATE UNIQUE INDEX',
+    'USING btree (usuario_id)',
+    "WHERE (estado = 'pendiente'::estado_registro)",
+  ],
+});
+
+await eqIndices('índices de incidencias y ajustes para recálculo y auditoría', {
+  incidencias_empresa_empleado_idx: [
+    'USING btree (empresa_id, empleado_id, creado_en DESC)',
+  ],
+  incidencias_empresa_tipo_idx: [
+    'USING btree (empresa_id, tipo, creado_en DESC)',
+  ],
+  incidencias_jornada_idx: ['USING btree (jornada_id, creado_en DESC)'],
+  incidencias_empresa_jornada_idx: ['USING btree (empresa_id, jornada_id)'],
+  ajustes_empresa_jornada_idx: [
+    'USING btree (empresa_id, jornada_id, creado_en DESC)',
+  ],
+  ajustes_empresa_empleado_idx: [
+    'USING btree (empresa_id, empleado_id, creado_en DESC)',
+  ],
+});
+
+await eqIndices('índices de horarios y puestos por empresa', {
+  horarios_empresa_empleado_idx: ['USING btree (empresa_id, empleado_id)'],
+  puestos_empresa_activo_idx: ['USING btree (empresa_id, activo)'],
+});
+
+const defExclusion = await scalar(`
+  select pg_get_constraintdef(c.oid)
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  where n.nspname = 'public'
+    and t.relname = 'solicitudes_horas_extras'
+    and c.conname = 'solicitudes_sin_solape'
+    and c.contype = 'x'
+`);
+ok('restricción de exclusión solicitudes_sin_solape',
+  typeof defExclusion === 'string'
+    && defExclusion.includes('EXCLUDE USING gist')
+    && defExclusion.includes('empleado_id WITH =')
+    && defExclusion.includes("tstzrange(inicio, fin, '[)'::text) WITH &&")
+    && defExclusion.includes("'pendiente'::estado_solicitud")
+    && defExclusion.includes("'aprobada'::estado_solicitud"),
+  `definición=${defExclusion}`);
 
 // -----------------------------------------------------------------------------
 // Sin claims y anon
