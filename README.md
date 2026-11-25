@@ -333,7 +333,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-23 | Release MT-02 — invariantes fail-closed y herramientas seguras | `develop` | [#96](https://github.com/dgiron-2025071/AppCarrousel/pull/96) | Mergeado a `main` | 370 DB, 40 importador, 47 pasos Deno, CI |
 | 2026-11-24 | Backend — Edge Function organizada por capas | `dgiron-2025071` | [#97](https://github.com/dgiron-2025071/AppCarrousel/pull/97) | Mergeado a `develop` | 370 DB, 40 importador, 47 pasos Deno, CI |
 | 2026-11-24 | Release MT-02 — Edge Function organizada por capas | `develop` | [#98](https://github.com/dgiron-2025071/AppCarrousel/pull/98) | Mergeado a `main` | 370 DB, 40 importador, 47 pasos Deno, CI |
-| 2026-11-24 | Backend — pruebas unitarias por capa de la Edge Function | `dgiron-2025071` | [#99](https://github.com/dgiron-2025071/AppCarrousel/pull/99) | En revisión | 370 DB, 40 importador, 47 pasos + 10 unitarias Deno, CI |
+| 2026-11-24 | Backend — pruebas unitarias por capa de la Edge Function | `dgiron-2025071` | [#99](https://github.com/dgiron-2025071/AppCarrousel/pull/99) | Mergeado a `develop` | 370 DB, 40 importador, 47 pasos + 10 unitarias Deno, CI |
+| 2026-11-24 | Release MT-02 — pruebas unitarias por capa de la Edge Function | `develop` | [#100](https://github.com/dgiron-2025071/AppCarrousel/pull/100) | Mergeado a `main` | 370 DB, 40 importador, 47 pasos + 10 unitarias Deno, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
