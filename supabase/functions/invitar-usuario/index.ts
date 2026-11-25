@@ -1,9 +1,14 @@
 // =============================================================================
 // Carrousel — Edge Function: invitación de usuarios
 //
-// Crea un usuario en Supabase Auth con una invitación por correo y escribe en
-// `app_metadata` el alcance y el rol. El trigger de `public.perfiles`
-// materializa el perfil; el cliente nunca puede escribir esos claims.
+// Punto de entrada HTTP. La lógica está separada por capas:
+//   - `config.ts`         entorno y límites
+//   - `respuestas.ts`     CORS y respuestas
+//   - `validacion.ts`     cuerpo y claims del token
+//   - `clientes.ts`       clientes de Supabase con timeout
+//   - `autorizacion.ts`   sesión, perfil, empresa y subárbol
+//   - `reconciliacion.ts` limpieza de cuentas huérfanas
+//   - `servicio.ts`       orquestación de la invitación
 //
 // Seguridad:
 //   - La plataforma valida el JWT del solicitante (verify_jwt por defecto).
@@ -23,159 +28,13 @@
 //   supabase secrets set APP_REDIRECT_URL=io.supabase.carrousel://login-callback
 // =============================================================================
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-interface InvitarBody {
-  email?: unknown;
-  nombre_completo?: unknown;
-  rol?: unknown;
-  centro_costo_id?: unknown;
-}
-
-interface PerfilSolicitante {
-  empresa_id: string;
-  centro_costo_id: string;
-  rol: string;
-  activo: boolean;
-}
-
-interface CentroDestino {
-  id: string;
-  empresa_id: string;
-  ruta: string[] | null;
-}
-
-interface EmpresaSolicitante {
-  activa: boolean;
-}
-
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function normalizarEmail(valor: unknown): string {
-  if (typeof valor !== "string") return "";
-  // NFC evita que dos representaciones Unicode del mismo correo creen cuentas
-  // distintas.
-  return valor.trim().normalize("NFC").toLowerCase().normalize("NFC");
-}
-
-// Los caracteres de control (C0 y DEL) no son validos en un correo y pueden
-// confundir a GoTrue o a los logs. Se comprueban aparte para no esconderlos en
-// una expresion regular.
-function tieneCaracterDeControl(valor: string): boolean {
-  for (const caracter of valor) {
-    const codigo = caracter.charCodeAt(0);
-    if (codigo <= 0x1f || codigo === 0x7f) return true;
-  }
-  return false;
-}
-
-// Lee el payload del access token. La firma ya la validó la plataforma
-// (`verify_jwt`) y `auth.getUser()` confirma que la sesión sigue vigente, así
-// que aquí solo se decodifica para comparar los claims *emitidos*. No se usa
-// `authData.user.app_metadata` porque ese campo refleja el registro actual del
-// usuario, no el token: un admin movido de centro conservaría el alcance nuevo
-// con un JWT viejo.
-function claimsDelToken(authorization: string): Record<string, unknown> | null {
-  const token = authorization.replace(/^Bearer\s+/i, "").trim();
-  const partes = token.split(".");
-  if (partes.length !== 3) return null;
-
-  try {
-    const base64 = partes[1].replace(/-/g, "+").replace(/_/g, "/");
-    const relleno = "=".repeat((4 - (base64.length % 4)) % 4);
-    const payload = JSON.parse(atob(base64 + relleno));
-    return payload && typeof payload === "object"
-      ? payload as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
-}
-
-function error(mensaje: string, status = 400): Response {
-  return json({ error: mensaje }, status);
-}
-
-// GoTrue puede crear el usuario y fallar después al enviar el correo; en ese
-// caso responde sin el id. Solo se considera huérfana una cuenta del mismo
-// correo, creada en los últimos 10 minutos y sin app_metadata.empresa_id.
-const VENTANA_HUERFANO_MS = 10 * 60 * 1000;
-
-// `listUsers` admite paginacion: recorremos `nextPage` hasta agotarla. El
-// techo evita un bucle infinito si Auth devuelve punteros repetidos; al
-// alcanzarlo se falla cerrado en vez de afirmar que no habia huérfana.
-const USUARIOS_POR_PAGINA = 100;
-const MAX_PAGINAS_USUARIOS = 20;
-
-// Limite de espera por llamada a Auth/PostgREST. Sin el, una peticion colgada
-// mantiene viva la Edge Function hasta el timeout de la plataforma y el cliente
-// no sabe si la invitacion llego a crearse. `504` significa "dependencia no
-// respondio"; nunca se traduce como sesion invalida ni como reversion confirmada.
-const TIMEOUT_MS = (() => {
-  const crudo = Deno.env.get("AUTH_TIMEOUT_MS");
-  if (crudo === undefined) return 10000;
-  const numero = Number(crudo);
-  return Number.isSafeInteger(numero) && numero >= 50 && numero <= 60000
-    ? numero
-    : 10000;
-})();
-
-const MARCA_TIMEOUT = "carrousel_timeout_dependencia";
-
-// `name`/`code` de aborto son necesarios: postgrest-js reintenta cualquier otro
-// fallo de red con backoff, lo que convertiria un timeout corto en una espera
-// de varios segundos. El mensaje conserva la marca para clasificar la respuesta.
-class TimeoutDependencia extends Error {
-  override name = "AbortError";
-  readonly code = "ABORT_ERR";
-
-  constructor(causa: unknown) {
-    super(MARCA_TIMEOUT, { cause: causa });
-  }
-}
-
-function esTimeout(valor: unknown): boolean {
-  if (!valor) return false;
-  if (valor instanceof TimeoutDependencia) return true;
-  const mensaje = typeof valor === "string"
-    ? valor
-    : (valor as { message?: unknown } | null)?.message;
-  return typeof mensaje === "string" && mensaje.includes(MARCA_TIMEOUT);
-}
-
-// Se inyecta en `createClient` a traves de `global.fetch`. La marca viaja en el
-// mensaje porque supabase-js convierte las excepciones de fetch en objetos de
-// error antes de devolverlos a la funcion.
-const fetchConTimeout: typeof fetch = async (entrada, init) => {
-  const control = AbortSignal.timeout(TIMEOUT_MS);
-  const señal = init?.signal
-    ? AbortSignal.any([init.signal, control])
-    : control;
-  try {
-    return await fetch(entrada, { ...init, signal: señal });
-  } catch (error) {
-    if (control.aborted) throw new TimeoutDependencia(error);
-    throw error;
-  }
-};
-
-const PORT = Number(Deno.env.get("PORT") ?? "8000");
+import { verificarSesion } from "./autorizacion.ts";
+import { clienteAdmin, clienteSolicitante } from "./clientes.ts";
+import { leerConfiguracion, PUERTO } from "./config.ts";
+import { CORS, error, respuestaFalloNoControlado } from "./respuestas.ts";
+import { ejecutarInvitacion } from "./servicio.ts";
+import type { InvitarBody } from "./tipos.ts";
+import { validarCuerpo } from "./validacion.ts";
 
 async function manejar(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
@@ -185,13 +44,8 @@ async function manejar(req: Request): Promise<Response> {
     return error("Método no permitido.", 405);
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const redirectTo = Deno.env.get("APP_REDIRECT_URL") ??
-    "io.supabase.carrousel://login-callback";
-
-  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+  const configuracion = leerConfiguracion();
+  if (!configuracion) {
     return error("La función no está configurada correctamente.", 500);
   }
 
@@ -200,25 +54,13 @@ async function manejar(req: Request): Promise<Response> {
     return error("Falta la sesión del administrador.", 401);
   }
 
-  const clienteSolicitante = createClient(supabaseUrl, anonKey, {
-    global: {
-      headers: { Authorization: autorizacion },
-      fetch: fetchConTimeout,
-    },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data: authData, error: authError } = await clienteSolicitante.auth
-    .getUser();
-  if (esTimeout(authError)) {
-    return error(
-      "Auth no respondió al verificar la sesión. Intenta de nuevo.",
-      504,
-    );
-  }
-  if (authError || !authData.user) {
-    return error("Sesión inválida o expirada.", 401);
-  }
+  const solicitante = clienteSolicitante(
+    configuracion.supabaseUrl,
+    configuracion.anonKey,
+    autorizacion,
+  );
+  const sesion = await verificarSesion(solicitante);
+  if (sesion.respuesta) return sesion.respuesta;
 
   let cuerpo: InvitarBody;
   try {
@@ -227,313 +69,26 @@ async function manejar(req: Request): Promise<Response> {
     return error("El cuerpo debe ser JSON válido.");
   }
 
-  const email = normalizarEmail(cuerpo.email);
-  const nombre = typeof cuerpo.nombre_completo === "string"
-    ? cuerpo.nombre_completo.trim()
-    : "";
-  const rol = typeof cuerpo.rol === "string" ? cuerpo.rol.trim() : "";
-  const centroId = typeof cuerpo.centro_costo_id === "string"
-    ? cuerpo.centro_costo_id.trim()
-    : "";
+  const validacion = validarCuerpo(cuerpo);
+  if (validacion.mensaje !== null) return error(validacion.mensaje);
 
-  if (
-    !EMAIL.test(email) || email.length > 320 || tieneCaracterDeControl(email)
-  ) {
-    return error("Escribe un correo electrónico válido.");
-  }
-  if (nombre.length < 2 || nombre.length > 120) {
-    return error("El nombre completo debe tener entre 2 y 120 caracteres.");
-  }
-  if (rol !== "empleado" && rol !== "admin") {
-    return error("El rol debe ser empleado o admin.");
-  }
-  if (!UUID.test(centroId)) {
-    return error("El centro de costo no es válido.");
-  }
-
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    global: { fetch: fetchConTimeout },
-    auth: { persistSession: false, autoRefreshToken: false },
+  const admin = clienteAdmin(
+    configuracion.supabaseUrl,
+    configuracion.serviceRoleKey,
+  );
+  return await ejecutarInvitacion({
+    datos: validacion.datos,
+    autorizacion,
+    idUsuario: sesion.id,
+    redirectTo: configuracion.redirectTo,
+    admin,
   });
-
-  // Cualquier usuario con claims se deja intacto: solo se limpia la cuenta
-  // huérfana que GoTrue pudo dejar al fallar el envío del correo.
-  const reconciliarInvitacionFallida = async (
-    email: string,
-  ): Promise<"limpio" | "revertido" | "error" | "timeout"> => {
-    try {
-      const ahora = Date.now();
-      let pagina = 1;
-
-      while (true) {
-        if (pagina > MAX_PAGINAS_USUARIOS) {
-          console.error(
-            "ALERTA: se agotó el techo de páginas al buscar la huérfana de",
-            email,
-          );
-          return "error";
-        }
-
-        const { data, error: listError } = await admin.auth.admin.listUsers({
-          page: pagina,
-          perPage: USUARIOS_POR_PAGINA,
-        });
-        if (listError || !data) {
-          return esTimeout(listError) ? "timeout" : "error";
-        }
-
-        const usuarios = Array.isArray(data.users) ? data.users : [];
-        const huerfano = usuarios.find((usuario) => {
-          const creado = Date.parse(usuario.created_at ?? "");
-          return usuario.email?.toLowerCase() === email &&
-            !usuario.app_metadata?.empresa_id &&
-            Number.isFinite(creado) &&
-            ahora - creado >= 0 &&
-            ahora - creado <= VENTANA_HUERFANO_MS;
-        });
-
-        if (huerfano) {
-          const { error: deleteError } = await admin.auth.admin
-            .deleteUser(huerfano.id);
-          if (deleteError) {
-            console.error(
-              "ALERTA: no se pudo limpiar la invitación huérfana de",
-              email,
-              deleteError.message,
-            );
-            return esTimeout(deleteError) ? "timeout" : "error";
-          }
-          return "revertido";
-        }
-
-        const siguiente = (data as { nextPage?: number | null }).nextPage;
-        if (typeof siguiente === "number") {
-          if (siguiente <= pagina || siguiente > MAX_PAGINAS_USUARIOS) {
-            console.error(
-              "ALERTA: paginación de Auth inconsistente para",
-              email,
-              `pagina=${pagina} siguiente=${siguiente}`,
-            );
-            return "error";
-          }
-          pagina = siguiente;
-          continue;
-        }
-
-        if (usuarios.length < USUARIOS_POR_PAGINA) return "limpio";
-        pagina += 1;
-      }
-    } catch (error) {
-      console.error("ALERTA: falló la reconciliación de", email, error);
-      return esTimeout(error) ? "timeout" : "error";
-    }
-  };
-
-  const { data: perfiles, error: perfilError } = await admin
-    .from("perfiles")
-    .select("empresa_id, centro_costo_id, rol, activo")
-    .eq("id", authData.user.id)
-    .limit(1);
-
-  if (perfilError) {
-    return esTimeout(perfilError)
-      ? error("La base de datos no respondió al leer el perfil.", 504)
-      : error("No se pudo verificar el perfil del solicitante.", 500);
-  }
-  const perfil = (perfiles?.[0] ?? null) as PerfilSolicitante | null;
-  if (!perfil || perfil.rol !== "admin" || !perfil.activo) {
-    return error("Solo un administrador activo puede invitar usuarios.", 403);
-  }
-
-  // El alcance autorizado es el del JWT (`app_metadata`), igual que en la base
-  // de datos (`0017`). Si el perfil fue degradado o movido sin refrescar la
-  // sesión, la función falla cerrada en lugar de ampliar el alcance.
-  const claims = claimsDelToken(autorizacion);
-  if (!claims || claims.sub !== authData.user.id) {
-    return error("Sesión inválida o expirada.", 401);
-  }
-  const appMetadata = (claims.app_metadata ?? {}) as Record<string, unknown>;
-  if (
-    appMetadata.rol !== "admin" ||
-    appMetadata.empresa_id !== perfil.empresa_id ||
-    appMetadata.centro_costo_id !== perfil.centro_costo_id
-  ) {
-    return error(
-      "Tu sesión ya no refleja tu alcance actual. Vuelve a iniciar sesión.",
-      403,
-    );
-  }
-
-  // `service_role` ignora RLS: la suspensión de la empresa (0013) no basta.
-  const { data: empresas, error: empresaError } = await admin
-    .from("empresas")
-    .select("activa")
-    .eq("id", perfil.empresa_id)
-    .limit(1);
-
-  if (empresaError) {
-    return esTimeout(empresaError)
-      ? error("La base de datos no respondió al leer la empresa.", 504)
-      : error("No se pudo verificar la empresa.", 500);
-  }
-  const empresa = (empresas?.[0] ?? null) as EmpresaSolicitante | null;
-  if (!empresa?.activa) {
-    return error("La empresa está suspendida.", 403);
-  }
-
-  const { data: centros, error: centroError } = await admin
-    .from("centros_costo")
-    .select("id, empresa_id, ruta")
-    .eq("id", centroId)
-    .limit(1);
-
-  if (centroError) {
-    return esTimeout(centroError)
-      ? error("La base de datos no respondió al leer el centro de costo.", 504)
-      : error("No se pudo verificar el centro de costo.", 500);
-  }
-  const centro = (centros?.[0] ?? null) as CentroDestino | null;
-  if (!centro || centro.empresa_id !== perfil.empresa_id) {
-    return error("El centro de costo no pertenece a tu empresa.", 400);
-  }
-
-  const ruta = centro.ruta ?? [];
-  const enAlcance = centro.id === perfil.centro_costo_id ||
-    ruta.includes(perfil.centro_costo_id);
-  if (!enAlcance) {
-    return error(
-      "Solo puedes invitar usuarios a centros dentro de tu subárbol.",
-      403,
-    );
-  }
-
-  const { data: invitacion, error: invitacionError } = await admin.auth.admin
-    .inviteUserByEmail(email, { redirectTo });
-
-  if (invitacionError || !invitacion.user) {
-    const texto = (invitacionError?.message ?? "").toLowerCase();
-    if (
-      texto.includes("already been registered") ||
-      texto.includes("already exists")
-    ) {
-      return error("Ese correo ya tiene una cuenta en Carrousel.", 409);
-    }
-    const timeoutInvitacion = esTimeout(invitacionError);
-    if (timeoutInvitacion) {
-      console.error("ALERTA: timeout al invitar a", email, invitacionError);
-    }
-    const reconciliacion = await reconciliarInvitacionFallida(email);
-    if (reconciliacion === "error") {
-      return error(
-        "No se pudo enviar la invitación ni verificar si quedó una cuenta huérfana. Revisa Auth.",
-        500,
-      );
-    }
-    if (reconciliacion === "timeout") {
-      return error(
-        "Auth no respondió al buscar una cuenta huérfana. Revisa Auth antes de reintentar.",
-        504,
-      );
-    }
-    if (reconciliacion === "revertido") {
-      return error(
-        "No se pudo enviar la invitación. Se eliminó la cuenta huérfana; vuelve a intentar.",
-        502,
-      );
-    }
-    if (timeoutInvitacion) {
-      return error(
-        "Auth no respondió al enviar la invitación; no se confirmó si se creó la cuenta. Revisa Auth antes de reintentar.",
-        504,
-      );
-    }
-    return error(
-      "No se pudo enviar la invitación. Revisa la configuración de correo.",
-      502,
-    );
-  }
-
-  const { error: claimsError } = await admin.auth.admin.updateUserById(
-    invitacion.user.id,
-    {
-      app_metadata: {
-        empresa_id: perfil.empresa_id,
-        centro_costo_id: centro.id,
-        rol,
-      },
-      user_metadata: { nombre_completo: nombre },
-    },
-  );
-
-  if (claimsError) {
-    // Un timeout NO prueba que la escritura falló: pudo haberse aplicado y
-    // perderse la respuesta. Borrar al usuario aquí dejaría sin invitación a
-    // alguien cuyo alcance quizá ya quedó grabado. Se reporta y se pide
-    // revisión manual en vez de afirmar una reversión.
-    if (esTimeout(claimsError)) {
-      console.error(
-        "ALERTA: timeout al asignar el alcance de",
-        invitacion.user.id,
-        claimsError,
-      );
-      return error(
-        "No se pudo confirmar la asignación de alcance. Revisa el usuario en Auth antes de reintentar.",
-        504,
-      );
-    }
-
-    // Rollback: no se deja un usuario de Auth sin perfil ni alcance. Si la
-    // reversión también falla, decirlo explícitamente para que el admin sepa
-    // que queda una cuenta huérfana que hay que revisar a mano.
-    const { error: rollbackError } = await admin.auth.admin
-      .deleteUser(invitacion.user.id);
-
-    if (rollbackError) {
-      console.error(
-        "ALERTA: no se pudo revertir la invitación de",
-        invitacion.user.id,
-        rollbackError.message,
-      );
-      return error(
-        "No se pudo asignar el alcance ni revertir la invitación. Revisa el usuario creado en Auth.",
-        esTimeout(rollbackError) ? 504 : 500,
-      );
-    }
-
-    return error(
-      "No se pudo asignar el alcance al usuario. La invitación se revirtió.",
-      500,
-    );
-  }
-
-  return json(
-    {
-      id: invitacion.user.id,
-      email,
-      rol,
-      empresa_id: perfil.empresa_id,
-      centro_costo_id: centro.id,
-      nombre_completo: nombre,
-      invitacion_enviada: true,
-    },
-    201,
-  );
 }
 
-Deno.serve(
-  { port: Number.isFinite(PORT) ? PORT : 8000 },
-  async (req: Request) => {
-    try {
-      return await manejar(req);
-    } catch (fallo) {
-      if (esTimeout(fallo)) {
-        return error(
-          "Una dependencia no respondió a tiempo. Intenta de nuevo.",
-          504,
-        );
-      }
-      console.error("Error no controlado en invitar-usuario", fallo);
-      return error("Error interno de la función.", 500);
-    }
-  },
-);
+Deno.serve({ port: PUERTO }, async (req: Request) => {
+  try {
+    return await manejar(req);
+  } catch (fallo) {
+    return respuestaFalloNoControlado(fallo);
+  }
+});
