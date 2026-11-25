@@ -67,8 +67,10 @@ dejan datos ni privilegios modificados.
   de los índices de `perfiles`, `centros_costo`, `parques`, `parques_centros`,
   `jornadas`, `solicitudes_horas_extras`, `registros_pendientes`,
   `incidencias_jornada`, `jornadas_ajustes`, `horarios` y `puestos`, y en
-  `pg_constraint` la restricción de exclusión `solicitudes_sin_solape`. Una
-  migración que elimine, renombre o reordene esos índices rompe la suite.
+  `pg_constraint` la restricción de exclusión `solicitudes_sin_solape`. También
+  extrae de las migraciones todo `CREATE INDEX` y exige que el índice exista en
+  la base. Una migración que elimine, renombre o reordene esos índices rompe la
+  suite.
 - Jerarquía: cálculo de `ruta`, FK cross-tenant, anti-ciclos, códigos únicos
   por empresa y límite de 32 niveles.
 - Propagación de `ruta` al subárbol al mover un centro.
@@ -193,7 +195,7 @@ dejan datos ni privilegios modificados.
   el arnés.
 - Auditoría: `actualizado_en` y `actualizado_por`.
 
-Resultado actual: **379 pruebas OK, 0 FAIL**.
+Resultado actual: **381 pruebas OK, 0 FAIL**.
 
 ## Límites
 

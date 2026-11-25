@@ -3512,6 +3512,27 @@ eq('los tokens de sincronizacion son distintos',
 // -----------------------------------------------------------------------------
 group('Índices de RLS y reportes');
 
+const indicesDeclarados = files.flatMap((archivo) => {
+  const sql = fs.readFileSync(path.join(migrationsDir, archivo), 'utf8');
+  return [...sql.matchAll(
+    /^\s*create\s+(?:unique\s+)?index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?([a-z_][a-z0-9_]*)/gim,
+  )].map((coincidencia) => coincidencia[1]);
+});
+ok('el arnés lee todos los índices declarados en las migraciones',
+  indicesDeclarados.length >= 25,
+  `declarados=${indicesDeclarados.length}`);
+
+const indicesEnBase = new Set(
+  (await q(`select indexname from pg_indexes where schemaname = 'public'`)).rows
+    .map((fila) => fila.indexname),
+);
+const indicesFaltantes = indicesDeclarados.filter(
+  (nombre) => !indicesEnBase.has(nombre),
+);
+ok('todos los índices declarados en las migraciones existen',
+  indicesFaltantes.length === 0,
+  `faltan: ${indicesFaltantes.join(', ')}`);
+
 await eqIndices('índices de perfiles para RLS y FK de puesto', {
   perfiles_empresa_centro_idx: ['USING btree (empresa_id, centro_costo_id)'],
   perfiles_empresa_puesto_idx: ['USING btree (empresa_id, puesto_id)'],
