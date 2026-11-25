@@ -132,17 +132,19 @@ npx -y deno fmt --check supabase/functions/invitar-usuario/*.ts supabase/functio
 Pruebas unitarias por capa (no requieren credenciales ni Docker):
 
 ```bash
+npx -y deno test -A supabase/functions/tests/configuracion_test.ts
 npx -y deno test -A supabase/functions/tests/modulos_test.ts
 npx -y deno test -A supabase/functions/tests/autorizacion_servicio_test.ts
 ```
 
-`modulos_test.ts` cubre normalización del correo, reglas del cuerpo,
-decodificación de claims, clasificación de timeouts, respuestas y reconciliación
-(ventana de 10 minutos, dueños con claims, paginación, techo duro, punteros
-repetidos y timeouts al listar o borrar). `autorizacion_servicio_test.ts` añade
-19 pruebas del núcleo con cliente falso: sesión, orden de consultas, perfil,
-claims del JWT, empresa, subárbol, invitación, claims escritos, rollback y
-reconciliación.
+`configuracion_test.ts` cubre el timeout de Auth (por defecto, límites y valores
+fuera de rango), el puerto local y los secretos de Supabase. `modulos_test.ts`
+cubre normalización del correo, reglas del cuerpo, decodificación de claims,
+clasificación de timeouts, respuestas y reconciliación (ventana de 10 minutos,
+dueños con claims, paginación, techo duro, punteros repetidos y timeouts al
+listar o borrar). `autorizacion_servicio_test.ts` añade 19 pruebas del núcleo
+con cliente falso: sesión, orden de consultas, perfil, claims del JWT, empresa,
+subárbol, invitación, claims escritos, rollback y reconciliación.
 
 Pruebas de integración (no requieren credenciales ni Docker):
 

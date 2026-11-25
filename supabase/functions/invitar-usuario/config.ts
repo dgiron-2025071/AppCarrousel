@@ -17,17 +17,22 @@ export const MAX_PAGINAS_USUARIOS = 20;
 // mantiene viva la Edge Function hasta el timeout de la plataforma y el cliente
 // no sabe si la invitacion llego a crearse. `504` significa "dependencia no
 // respondio"; nunca se traduce como sesion invalida ni como reversion confirmada.
-export const TIMEOUT_MS = (() => {
-  const crudo = Deno.env.get("AUTH_TIMEOUT_MS");
-  if (crudo === undefined) return 10000;
-  const numero = Number(crudo);
+export function timeoutDesdeEntorno(valor: string | undefined): number {
+  if (valor === undefined) return 10000;
+  const numero = Number(valor);
   return Number.isSafeInteger(numero) && numero >= 50 && numero <= 60000
     ? numero
     : 10000;
-})();
+}
 
-const PORT = Number(Deno.env.get("PORT") ?? "8000");
-export const PUERTO = Number.isFinite(PORT) ? PORT : 8000;
+export const TIMEOUT_MS = timeoutDesdeEntorno(Deno.env.get("AUTH_TIMEOUT_MS"));
+
+export function puertoDesdeEntorno(valor: string | undefined): number {
+  const puerto = Number(valor ?? "8000");
+  return Number.isFinite(puerto) ? puerto : 8000;
+}
+
+export const PUERTO = puertoDesdeEntorno(Deno.env.get("PORT"));
 
 export interface Configuracion {
   supabaseUrl: string;
@@ -36,15 +41,33 @@ export interface Configuracion {
   redirectTo: string;
 }
 
-export function leerConfiguracion(): Configuracion | null {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+export interface EntornoInvitacion {
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
+  SUPABASE_ANON_KEY?: string;
+  APP_REDIRECT_URL?: string;
+}
+
+export function configuracionDesdeEntorno(
+  entorno: EntornoInvitacion,
+): Configuracion | null {
+  const supabaseUrl = entorno.SUPABASE_URL;
+  const serviceRoleKey = entorno.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = entorno.SUPABASE_ANON_KEY;
   if (!supabaseUrl || !serviceRoleKey || !anonKey) return null;
   return {
     supabaseUrl,
     serviceRoleKey,
     anonKey,
-    redirectTo: Deno.env.get("APP_REDIRECT_URL") ?? REDIRECT_POR_DEFECTO,
+    redirectTo: entorno.APP_REDIRECT_URL ?? REDIRECT_POR_DEFECTO,
   };
+}
+
+export function leerConfiguracion(): Configuracion | null {
+  return configuracionDesdeEntorno({
+    SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
+    SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    SUPABASE_ANON_KEY: Deno.env.get("SUPABASE_ANON_KEY"),
+    APP_REDIRECT_URL: Deno.env.get("APP_REDIRECT_URL"),
+  });
 }
