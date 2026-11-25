@@ -124,10 +124,21 @@ Respuesta `201`:
 Verificación estática:
 
 ```bash
-npx -y deno check supabase/functions/invitar-usuario/*.ts
-npx -y deno lint supabase/functions/invitar-usuario/*.ts
-npx -y deno fmt --check supabase/functions/invitar-usuario/*.ts
+npx -y deno check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/*.ts
+npx -y deno lint supabase/functions/invitar-usuario/*.ts supabase/functions/tests/*.ts
+npx -y deno fmt --check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/*.ts
 ```
+
+Pruebas unitarias de las capas puras (no requieren credenciales ni Docker):
+
+```bash
+npx -y deno test -A supabase/functions/tests/modulos_test.ts
+```
+
+Cubren normalización del correo, reglas del cuerpo, decodificación de claims,
+clasificación de timeouts, construcción de respuestas y reconciliación con un
+cliente falso (ventana de 10 minutos, dueños con claims, paginación, techo duro,
+punteros repetidos y timeouts al listar o borrar).
 
 Pruebas de integración (no requieren credenciales ni Docker):
 
