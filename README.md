@@ -68,7 +68,7 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] **40 pruebas del importador de CECOs OK, 0 fallos** (`pnpm --dir tools/importar-ceco test`).
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
-- [x] **47 pasos de integración y 10 pruebas unitarias por capa de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/*.ts`), con un Supabase falso local.
+- [x] **47 pasos de integración y 29 pruebas unitarias por capa de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/*.ts`), con un Supabase falso local.
 - [x] CI en GitHub Actions: `flutter analyze`, `flutter test`, arnés de PostgreSQL, importador de CECOs y verificaciones de la Edge Function en cada push y PR.
 - [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
 - [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
@@ -94,7 +94,7 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - normaliza el correo a NFC y en minúsculas y rechaza caracteres de control;
 - acota cada llamada a Auth/PostgREST con un plazo configurable (`AUTH_TIMEOUT_MS`) y responde `504` sin afirmar reversiones; si escribir `app_metadata` agota el plazo, no borra al usuario porque la escritura pudo haberse aplicado.
 
-El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check`, 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`) y 10 pruebas unitarias de las capas puras (normalización, validación, JWT, clasificación de timeouts, respuestas y reconciliación con clientes falsos); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
+El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check`, 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`) y 29 pruebas unitarias por capa (normalización, validación, JWT, clasificación de timeouts, respuestas, reconciliación, sesión, perfil, empresa, subárbol, invitación, claims, rollback y orden de consultas con clientes falsos); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
 
 ## Estado del backend — MT-02
 
@@ -335,6 +335,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-24 | Release MT-02 — Edge Function organizada por capas | `develop` | [#98](https://github.com/dgiron-2025071/AppCarrousel/pull/98) | Mergeado a `main` | 370 DB, 40 importador, 47 pasos Deno, CI |
 | 2026-11-24 | Backend — pruebas unitarias por capa de la Edge Function | `dgiron-2025071` | [#99](https://github.com/dgiron-2025071/AppCarrousel/pull/99) | Mergeado a `develop` | 370 DB, 40 importador, 47 pasos + 10 unitarias Deno, CI |
 | 2026-11-24 | Release MT-02 — pruebas unitarias por capa de la Edge Function | `develop` | [#100](https://github.com/dgiron-2025071/AppCarrousel/pull/100) | Mergeado a `main` | 370 DB, 40 importador, 47 pasos + 10 unitarias Deno, CI |
+| 2026-11-24 | Backend — pruebas unitarias de autorización y servicio | `dgiron-2025071` | [#101](https://github.com/dgiron-2025071/AppCarrousel/pull/101) | Mergeado a `develop` | 370 DB, 40 importador, 47 pasos + 29 unitarias Deno, CI |
+| 2026-11-24 | Release MT-02 — pruebas unitarias de autorización y servicio | `develop` | [#102](https://github.com/dgiron-2025071/AppCarrousel/pull/102) | En revisión | 370 DB, 40 importador, 47 pasos + 29 unitarias Deno, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
