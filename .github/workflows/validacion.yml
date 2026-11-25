@@ -48,7 +48,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
-      - run: deno lint supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
-      - run: deno fmt --check supabase/functions/invitar-usuario/index.ts supabase/functions/tests/invitar_usuario_test.ts
+      - run: deno check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
+      - run: deno lint supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
+      - run: deno fmt --check supabase/functions/invitar-usuario/*.ts supabase/functions/tests/invitar_usuario_test.ts
       - run: deno test -A supabase/functions/tests/invitar_usuario_test.ts
