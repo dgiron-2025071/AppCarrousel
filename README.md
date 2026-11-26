@@ -13,7 +13,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 | Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`-`0033` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 47 pasos de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
-| Herramientas internas | `db-validation` (PostgreSQL portátil) e `importar-ceco` (CSV → SQL idempotente) | Implementadas y probadas |
+| Herramientas internas | `db-validation` (PostgreSQL portátil), `importar-ceco` (CSV → SQL idempotente) y `front-pruebas` (interfaz independiente de API) | Implementadas y probadas |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
 | Distribución Android | APK directo | `flutter build apk --debug` validado |
 
@@ -69,7 +69,8 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **47 pasos de integración y 34 pruebas unitarias por capa de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/*.ts`), con un Supabase falso local.
-- [x] CI en GitHub Actions: `flutter analyze`, `flutter test`, arnés de PostgreSQL, importador de CECOs y verificaciones de la Edge Function en cada push y PR.
+- [x] CI en GitHub Actions: `flutter analyze`, `flutter test`, arnés de PostgreSQL, importador de CECOs, front de pruebas y verificaciones de la Edge Function en cada push y PR.
+- [x] Front de pruebas independiente con 14 consultas, 17 acciones y consola genérica; sin credenciales persistidas y sin tocar Flutter ni la web existente.
 - [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
 - [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
 
@@ -94,7 +95,7 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - normaliza el correo a NFC y en minúsculas y rechaza caracteres de control;
 - acota cada llamada a Auth/PostgREST con un plazo configurable (`AUTH_TIMEOUT_MS`) y responde `504` sin afirmar reversiones; si escribir `app_metadata` agota el plazo, no borra al usuario porque la escritura pudo haberse aplicado.
 
-El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check`, 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`) y 34 pruebas unitarias por capa (configuración, normalización, validación, JWT, clasificación de timeouts, respuestas, reconciliación, sesión, perfil, empresa, subárbol, invitación, claims, rollback y orden de consultas con clientes falsos); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
+El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La guía para crear los datos iniciales, promover al primer admin y recorrer los flujos desde el navegador está en [`tools/front-pruebas/README.md`](tools/front-pruebas/README.md). La función está verificada con `deno check`, 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`) y 34 pruebas unitarias por capa (configuración, normalización, validación, JWT, clasificación de timeouts, respuestas, reconciliación, sesión, perfil, empresa, subárbol, invitación, claims, rollback y orden de consultas con clientes falsos); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
 
 ## Estado del backend — MT-02
 
