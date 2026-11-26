@@ -13,7 +13,7 @@ El núcleo se diseñó desde el inicio para escalar a toda la empresa sin datos 
 | Backend y base de datos | Supabase / PostgreSQL 17, RLS, Realtime | Migraciones `0001`-`0033` implementadas y validadas |
 | Backend serverless | TypeScript sobre Deno (Supabase Edge Functions) | `invitar-usuario` implementada, verificada con `deno check` y 47 pasos de integración |
 | Tooling | pnpm 12.16.1, Supabase CLI 3.0.0, Git, GitHub CLI | Instalado |
-| Herramientas internas | `db-validation` (PostgreSQL portátil) e `importar-ceco` (CSV → SQL idempotente) | Implementadas y probadas |
+| Herramientas internas | `db-validation` (PostgreSQL portátil), `importar-ceco` (CSV → SQL idempotente) y `front-pruebas` (interfaz independiente de API) | Implementadas y probadas |
 | Mapas y geolocalización | OpenStreetMap + `flutter_map`, GPS nativo (`geolocator`) | Implementado con `InteractiveFlag.none` |
 | Distribución Android | APK directo | `flutter build apk --debug` validado |
 
@@ -69,7 +69,8 @@ No existe autoelevación: `authenticated` solo tiene `SELECT` sobre `public.perf
 - [x] Invitación automática de administradores con Edge Function y `service_role` (`supabase/functions/invitar-usuario`).
 - [x] Verificación estática de la Edge Function con `deno check`, `deno lint` y `deno fmt --check`.
 - [x] **47 pasos de integración y 34 pruebas unitarias por capa de la Edge Function OK, 0 fallos** (`npx -y deno test -A supabase/functions/tests/*.ts`), con un Supabase falso local.
-- [x] CI en GitHub Actions: `flutter analyze`, `flutter test`, arnés de PostgreSQL, importador de CECOs y verificaciones de la Edge Function en cada push y PR.
+- [x] CI en GitHub Actions: `flutter analyze`, `flutter test`, arnés de PostgreSQL, importador de CECOs, front de pruebas y verificaciones de la Edge Function en cada push y PR.
+- [x] Front de pruebas independiente con 14 consultas, 17 acciones y consola genérica; sin credenciales persistidas y sin tocar Flutter ni la web existente.
 - [ ] Despliegue y prueba de la Edge Function contra un proyecto Supabase real (requiere credenciales).
 - [ ] Validación con `supabase db reset` y JWT reales de Supabase (requiere Docker/WSL2).
 
@@ -94,11 +95,11 @@ La función `supabase/functions/invitar-usuario` recibe `email`, `nombre_complet
 - normaliza el correo a NFC y en minúsculas y rechaza caracteres de control;
 - acota cada llamada a Auth/PostgREST con un plazo configurable (`AUTH_TIMEOUT_MS`) y responde `504` sin afirmar reversiones; si escribir `app_metadata` agota el plazo, no borra al usuario porque la escritura pudo haberse aplicado.
 
-El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La función está verificada con `deno check`, 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`) y 34 pruebas unitarias por capa (configuración, normalización, validación, JWT, clasificación de timeouts, respuestas, reconciliación, sesión, perfil, empresa, subárbol, invitación, claims, rollback y orden de consultas con clientes falsos); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
+El detalle del contrato, la estructura por capas, los comandos de despliegue y el workflow manual de GitHub Actions están en [`supabase/functions/README.md`](supabase/functions/README.md). La guía para crear los datos iniciales, promover al primer admin y recorrer los flujos desde el navegador está en [`tools/front-pruebas/README.md`](tools/front-pruebas/README.md). La función está verificada con `deno check`, 47 pasos de integración contra un Supabase falso local (sesión, perfil, claims del token, empresa activa, jerarquía, validaciones, correo Unicode, invitación, rollback, reconciliación paginada de cuentas huérfanas, fallo del propio rollback y timeouts con `504`) y 34 pruebas unitarias por capa (configuración, normalización, validación, JWT, clasificación de timeouts, respuestas, reconciliación, sesión, perfil, empresa, subárbol, invitación, claims, rollback y orden de consultas con clientes falsos); su despliegue y prueba contra un proyecto real quedan pendientes de configurar los secrets del repositorio.
 
 ## Estado del backend — MT-02
 
-> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#108](https://github.com/dgiron-2025071/AppCarrousel/pull/108) del 2026-11-25. Las migraciones `0023`-`0033` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
+> MT-02 se integra a `develop` con el PR [#56](https://github.com/dgiron-2025071/AppCarrousel/pull/56) y se libera por partes a `main` desde el release [#60](https://github.com/dgiron-2025071/AppCarrousel/pull/60), con el último release [#110](https://github.com/dgiron-2025071/AppCarrousel/pull/110) del 2026-11-26. Las migraciones `0023`-`0033` se validan con el mismo arnés de PostgreSQL real y conservan las reglas de `0001`-`0022`.
 
 - [x] **0023** `puestos` por empresa y `perfiles.puesto_id` materializado desde `app_metadata.puesto_id`. `centros_costo.jefe_id` designa al administrador responsable; `private.jefe_de_centro()` sube por `ruta` al jefe más cercano y `private.es_autorizador()` resuelve la cadena. El jefe debe ser un admin activo de la misma empresa, así que la firma de revisión de `0019`-`0021` sigue siendo válida.
 - [x] **0024** Horario semanal por empleado y día ISO (`horarios`), zona horaria IANA y umbral de precisión GPS por empresa, con `private.fecha_local()` y `private.horario_del_dia()` para calcular llegadas y salidas.
@@ -343,6 +344,8 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-25 | Release MT-02 — pruebas de configuración | `develop` | [#106](https://github.com/dgiron-2025071/AppCarrousel/pull/106) | Mergeado a `main` | 379 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
 | 2026-11-25 | Backend — verificar índices declarados en migraciones | `dgiron-2025071` | [#107](https://github.com/dgiron-2025071/AppCarrousel/pull/107) | Mergeado a `develop` | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
 | 2026-11-25 | Release MT-02 — verificar índices declarados | `develop` | [#108](https://github.com/dgiron-2025071/AppCarrousel/pull/108) | Mergeado a `main` | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
+| 2026-11-26 | Front de pruebas independiente para la API | `dgiron-2025071` | [#109](https://github.com/dgiron-2025071/AppCarrousel/pull/109) | Mergeado a `develop` | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, front 14+17, CI |
+| 2026-11-26 | Release MT-02 — front de pruebas independiente | `develop` | [#110](https://github.com/dgiron-2025071/AppCarrousel/pull/110) | En revisión | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, front 14+17, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 

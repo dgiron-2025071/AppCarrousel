@@ -39,6 +39,7 @@ jobs:
       - run: pnpm --dir tools/db-validation install --frozen-lockfile
       - run: pnpm --dir tools/db-validation test
       - run: pnpm --dir tools/importar-ceco test
+      - run: node tools/front-pruebas/test/presets.test.mjs
 
   edge-function:
     name: Edge Function

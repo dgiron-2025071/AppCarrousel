@@ -1,0 +1,137 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #f6f7f9;
+  color: #1c2430;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+}
+
+header {
+  margin-bottom: 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.6rem;
+}
+
+h2 {
+  margin: 0 0 0.9rem;
+  font-size: 1.1rem;
+}
+
+p {
+  margin: 0.4rem 0;
+}
+
+main {
+  display: grid;
+  gap: 1rem;
+  max-width: 1100px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #dfe3e8;
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.ancho {
+  grid-column: 1 / -1;
+}
+
+label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #c8ced6;
+  border-radius: 5px;
+  background: #fff;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.botones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #315efb;
+  border-radius: 5px;
+  background: #315efb;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(0.95);
+}
+
+button.secundario {
+  background: #fff;
+  color: #315efb;
+}
+
+.aviso {
+  margin-top: 0.9rem;
+  color: #8a4b00;
+  font-size: 0.86rem;
+}
+
+.nota {
+  color: #4a5563;
+  font-size: 0.9rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.88em;
+}
+
+.salida {
+  margin: 0.9rem 0 0;
+  padding: 0.8rem;
+  min-height: 4rem;
+  max-height: 22rem;
+  overflow: auto;
+  background: #111827;
+  color: #e5e7eb;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
