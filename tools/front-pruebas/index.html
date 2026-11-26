@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Carrousel — front de pruebas</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Carrousel — front de pruebas</h1>
+      <p>
+        Herramienta independiente para probar la API real. No modifica Flutter ni
+        la web existente. La configuración y los tokens quedan solo en memoria.
+      </p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>1. Configuración</h2>
+        <div class="grid">
+          <label>
+            URL de Supabase
+            <input id="url" type="url" placeholder="https://&lt;proyecto&gt;.supabase.co" autocomplete="off" />
+          </label>
+          <label>
+            Anon key
+            <input id="anon" type="text" placeholder="anon key de Supabase" autocomplete="off" />
+          </label>
+          <label class="ancho">
+            URL de la Edge Function (opcional)
+            <input id="funcion" type="url" placeholder="Se deriva de la URL de Supabase" autocomplete="off" />
+          </label>
+        </div>
+        <div class="botones">
+          <button id="guardar-config" type="button">Verificar configuración</button>
+          <button id="limpiar-config" type="button" class="secundario">Limpiar todo</button>
+        </div>
+        <p class="aviso">
+          No pongas aquí la clave de servicio: solo vive en la Edge Function.
+          No escribas valores reales en el repositorio.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>2. Sesión</h2>
+        <div class="grid">
+          <label>
+            Correo
+            <input id="email" type="email" placeholder="correo de prueba" autocomplete="off" />
+          </label>
+          <label>
+            Contraseña
+            <input id="password" type="password" placeholder="contraseña de prueba" autocomplete="off" />
+          </label>
+          <label class="ancho">
+            Access token manual (opcional)
+            <input id="token-manual" type="text" placeholder="Solo si el enlace de invitación vino con ?code=" autocomplete="off" />
+          </label>
+        </div>
+        <div class="botones">
+          <button id="login" type="button">Iniciar sesión</button>
+          <button id="signup" type="button">Crear usuario (signup)</button>
+          <button id="ver-sesion" type="button">Ver sesión y claims</button>
+          <button id="usar-token" type="button">Usar token pegado</button>
+          <button id="logout" type="button" class="secundario">Cerrar sesión</button>
+        </div>
+        <pre id="session" class="salida">Sin sesión.</pre>
+      </section>
+
+      <section class="panel">
+        <h2>3. Valores de prueba</h2>
+        <p>
+          Se usan en los marcadores <code>{{...}}</code> de las plantillas. Puedes
+          dejarlos vacíos y escribir los UUID directamente en el JSON.
+        </p>
+        <div id="campos-id" class="grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>4. Consultas rápidas</h2>
+        <div id="consultas-botones" class="botones"></div>
+      </section>
+
+      <section class="panel">
+        <h2>5. Acciones</h2>
+        <label class="ancho">
+          Operación
+          <select id="accion-select"></select>
+        </label>
+        <p id="accion-nota" class="nota"></p>
+        <p><code id="accion-ruta"></code></p>
+        <label class="ancho">
+          Cuerpo JSON (editable)
+          <textarea id="accion-cuerpo" rows="10" spellcheck="false"></textarea>
+        </label>
+        <div class="botones">
+          <button id="accion-rellenar" type="button" class="secundario">Rellenar plantilla</button>
+          <button id="accion-ejecutar" type="button">Ejecutar acción</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>6. Consola genérica</h2>
+        <div class="grid">
+          <label>
+            Método
+            <select id="metodo">
+              <option>GET</option>
+              <option>POST</option>
+              <option>PATCH</option>
+              <option>DELETE</option>
+            </select>
+          </label>
+          <label class="ancho">
+            Ruta
+            <input id="ruta" type="text" placeholder="/rest/v1/jornadas?select=*&limit=5" autocomplete="off" />
+          </label>
+          <label class="ancho">
+            Cuerpo JSON (opcional)
+            <textarea id="cuerpo" rows="6" spellcheck="false"></textarea>
+          </label>
+        </div>
+        <div class="botones">
+          <button id="generico-ejecutar" type="button">Ejecutar petición</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>7. Registro</h2>
+        <div class="botones">
+          <button id="limpiar-log" type="button" class="secundario">Limpiar registro</button>
+        </div>
+        <pre id="log" class="salida"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
