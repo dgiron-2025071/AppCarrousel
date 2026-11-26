@@ -344,6 +344,7 @@ Las pruebas de integración levantan un servidor que emula Supabase Auth/PostgRE
 | 2026-11-25 | Release MT-02 — pruebas de configuración | `develop` | [#106](https://github.com/dgiron-2025071/AppCarrousel/pull/106) | Mergeado a `main` | 379 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
 | 2026-11-25 | Backend — verificar índices declarados en migraciones | `dgiron-2025071` | [#107](https://github.com/dgiron-2025071/AppCarrousel/pull/107) | Mergeado a `develop` | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
 | 2026-11-25 | Release MT-02 — verificar índices declarados | `develop` | [#108](https://github.com/dgiron-2025071/AppCarrousel/pull/108) | Mergeado a `main` | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, CI |
+| 2026-11-26 | Front de pruebas independiente para la API | `dgiron-2025071` | [#109](https://github.com/dgiron-2025071/AppCarrousel/pull/109) | En revisión | 381 DB, 40 importador, 47 pasos + 34 unitarias Deno, front 14+17, CI |
 
 > Nota de proceso: el PR #1 se creó como borrador y GitHub devolvió un error de GraphQL al intentar marcarlo como listo. Se cerró y se recreó como PR #2. El PR #14 no existe.
 
